@@ -4,7 +4,10 @@ from typing import Optional
 import asyncio
 
 from app.core.config import settings
-from app.models.mongodb_models import User, Document, Skill, DocumentRelationship, TimelineEvent
+from app.models.mongodb_models import (
+    User, Document, Skill, Relationship, TimelineEvent, 
+    Notification, ActivityLog, PortfolioSettings, Session
+)
 
 # Global MongoDB client
 mongodb_client: Optional[AsyncIOMotorClient] = None
@@ -28,7 +31,10 @@ async def init_mongodb():
         # Initialize Beanie with all models
         await init_beanie(
             database=client[settings.MONGODB_DATABASE_NAME],
-            document_models=[User, Document, Skill, DocumentRelationship, TimelineEvent]
+            document_models=[
+                User, Document, Skill, Relationship, TimelineEvent, 
+                Notification, ActivityLog, PortfolioSettings, Session
+            ]
         )
         
         print(f"✓ Beanie ODM initialized with models")

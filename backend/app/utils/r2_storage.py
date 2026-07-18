@@ -144,4 +144,16 @@ class R2Storage:
             return False
 
 # Global R2 storage instance
-r2_storage = R2Storage()
+# Lazy initialization - only create client when actually needed
+r2_storage = None
+
+def get_r2_storage():
+    """Get or create R2 storage instance (lazy initialization)"""
+    global r2_storage
+    if r2_storage is None:
+        try:
+            r2_storage = R2Storage()
+        except Exception as e:
+            print(f"Warning: Failed to initialize R2 storage: {e}")
+            r2_storage = None
+    return r2_storage

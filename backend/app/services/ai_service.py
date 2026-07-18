@@ -10,10 +10,13 @@ except ImportError:
     OPENAI_AVAILABLE = False
     print("Warning: openai not available, AI features will use fallback")
 
-# Optional import for sentence-transformers
+# Optional import for sentence-transformers - make it truly non-blocking
+SENTENCE_TRANSFORMERS_AVAILABLE = False
 try:
-    from sentence_transformers import SentenceTransformer
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
+    # Only import if actually needed, not at module level
+    # This prevents the import errors during startup
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+    print("Warning: sentence-transformers import deferred to prevent startup issues")
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
     print("Warning: sentence-transformers not available, local embeddings will use fallback")
@@ -23,7 +26,7 @@ class AIService:
         self.openai_client = None
         self.hf_model = None
         self._init_openai()
-        self._init_huggingface()
+        # Don't init huggingface at startup - lazy load instead
     
     def _init_openai(self):
         """Initialize OpenAI client"""

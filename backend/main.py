@@ -1,6 +1,8 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 import uvicorn
 from typing import List
 import os
@@ -9,8 +11,28 @@ from datetime import datetime
 from app.core.config import settings
 from app.core.database import init_db
 from app.core.mongodb import init_mongodb, close_mongodb
-from app.services.ai_service import ai_service
-from app.services.embeddings import embedding_service
+
+# Optional imports - make them non-blocking
+ai_service = None
+embedding_service = None
+
+try:
+    from app.services.ai_service import ai_service
+except Exception as e:
+    print(f"Warning: AI service not available: {e}")
+    ai_service = None
+
+try:
+    from app.services.embeddings import embedding_service
+except Exception as e:
+    print(f"Warning: Embedding service not available: {e}")
+    embedding_service = None
+from app.middleware.error_handler import (
+    http_exception_handler,
+    validation_exception_handler,
+    general_exception_handler,
+    starlette_http_exception_handler
+)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -27,6 +49,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register error handlers
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(StarletteHTTPException, starlette_http_exception_handler)
+app.add_exception_handler(Exception, general_exception_handler)
 
 # Initialize database on startup
 @app.on_event("startup")
