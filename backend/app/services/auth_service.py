@@ -22,7 +22,7 @@ class AuthService:
             "password_hash": get_password_hash(password),
             "auth_provider": AuthProvider.LOCAL,
             "institution": institution,
-            "email_verified": False,
+            "email_verified": True,
         }
         
         user = await user_repository.create(user_data)

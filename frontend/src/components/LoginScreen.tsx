@@ -1,233 +1,174 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { ShieldAlert, ShieldCheck, Lock, Unlock, Mail, Eye, EyeOff, RefreshCw } from 'lucide-react';
-import { IDENTITY_VAULT_LOGO } from '../data';
+import React, { useState } from 'react';
 import { apiClient } from '../api';
+import '../styles.css';
 
 interface LoginScreenProps {
-  onUnlock: () => void;
+  onLogin: () => void;
 }
 
-export default function LoginScreen({ onUnlock }: LoginScreenProps) {
-  const [isLoginMode, setIsLoginMode] = useState(true);
+export default function LoginScreen({ onLogin }: LoginScreenProps) {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanSuccess, setScanSuccess] = useState(false);
-  const [attempts, setAttempts] = useState(0);
+  const [fullName, setFullName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleEmailAuth = async () => {
-    if (!email || !password) {
-      setError('Please enter email and password');
-      return;
-    }
-
-    setIsScanning(true);
-    setError('');
-
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
     try {
-      if (isLoginMode) {
-        const response = await apiClient.login(email, password);
-        apiClient.setToken(response.access_token);
-        localStorage.setItem('user', JSON.stringify(response.user));
-        
-        setScanSuccess(true);
-        setTimeout(() => {
-          onUnlock();
-        }, 500);
-      } else {
-        // Registration
-        const username = email.split('@')[0];
-        await apiClient.register(email, username, password);
-        
-        // Auto-login after registration
-        const response = await apiClient.login(email, password);
-        apiClient.setToken(response.access_token);
-        localStorage.setItem('user', JSON.stringify(response.user));
-        
-        setScanSuccess(true);
-        setTimeout(() => {
-          onUnlock();
-        }, 500);
-      }
+      const response =
+        mode === 'login'
+          ? await apiClient.login(email, password)
+          : await apiClient.register(email, password, fullName);
+      apiClient.setToken(response.access_token);
+      localStorage.setItem('user', JSON.stringify(response.user));
+      onLogin();
     } catch (err: any) {
-      setError(err.message || 'Authentication failed');
-      setAttempts(prev => prev + 1);
-      setIsScanning(false);
+      setError(err.message || (mode === 'login' ? 'Invalid credentials' : 'Registration failed'));
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (apiClient['token']) {
-      // Already logged in
-      onUnlock();
-    }
-  }, [onUnlock]);
-
   return (
-    <div id="login-screen-root" className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans select-none">
-      {/* Decorative background grid and ambient glows */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(1,36,64,0.3),transparent_70%)] pointer-events-none" />
-      <div className="absolute top-0 left-0 w-full h-full bg-[linear-gradient(rgba(255,255,255,0.01)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.01)_1px,transparent_1px)] bg-[size:32px_32px] opacity-40 pointer-events-none" />
+    <div className="login-container">
+      {/* Animated grid background */}
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundImage:
+            'linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)',
+          backgroundSize: '40px 40px',
+          pointerEvents: 'none',
+        }}
+      />
 
-      {/* Cybernetic HUD elements in corners */}
-      <div className="absolute top-6 left-6 font-mono text-[10px] text-slate-500 hidden sm:block">
-        <div>SYS_STATUS: ARMED</div>
-        <div>IP_SECURE: 192.168.1.1</div>
-      </div>
-      <div className="absolute top-6 right-6 font-mono text-[10px] text-slate-500 hidden sm:block text-right">
-        <div>CRYPT: AES-256</div>
-        <div>VAULT_ID: IV-62F190A1</div>
-      </div>
-
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-        className="w-full max-w-md bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10"
-      >
-        {/* Status indicator bar */}
-        <div className="flex items-center justify-between mb-8 border-b border-slate-800 pb-4">
-          <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full ${error ? 'bg-rose-500 animate-pulse' : isScanning ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
-            <span className="font-mono text-xs text-slate-400 uppercase tracking-widest">
-              {error ? 'Access Denied' : isScanning ? 'Decrypting Key...' : scanSuccess ? 'Decrypted' : 'System Secure'}
-            </span>
-          </div>
-          <div className="font-mono text-xs text-slate-500">
-            {attempts > 0 && `Attempts: ${attempts}`}
-          </div>
-        </div>
-
-        {/* Vault Brand Logo & Header */}
-        <div className="text-center flex flex-col items-center mb-8">
-          <div className="relative w-16 h-16 mb-4 flex items-center justify-center">
-            {/* Ambient ring glow */}
-            <motion.div 
-              animate={{ 
-                scale: isScanning ? [1, 1.15, 1] : [1, 1.05, 1],
-                opacity: isScanning ? [0.4, 0.8, 0.4] : [0.2, 0.4, 0.2]
-              }}
-              transition={{ repeat: Infinity, duration: 2 }}
-              className="absolute inset-0 bg-brand-steel rounded-full blur-md"
-            />
-            {/* Visual Icon */}
-            <div className="w-16 h-16 rounded-2xl bg-brand-navy border border-brand-steel/30 flex items-center justify-center shadow-lg relative z-10">
-              <img 
-                src={IDENTITY_VAULT_LOGO} 
-                alt="IdentityVault Logo" 
-                className="w-10 h-10 object-contain brightness-125"
-                referrerPolicy="no-referrer"
-              />
-            </div>
-          </div>
-          <h1 className="text-2xl font-semibold text-slate-100 font-display tracking-tight flex items-center gap-1.5 justify-center">
-            Identity<span className="text-brand-steel font-normal">Vault</span>
-          </h1>
-          <p className="text-sm text-slate-400 mt-1 max-w-xs">
-            Unlock digital safe to access verified credentials, career milestones, and portfolio assets.
+      <div className="login-card kx-fade-in">
+        {/* Brand */}
+        <div className="login-brand">
+          <div className="login-brand-icon">K</div>
+          <h2>KizunaX</h2>
+          <p>
+            {mode === 'login'
+              ? 'Your AI-powered identity vault'
+              : 'Create your secure identity vault'}
           </p>
         </div>
 
-        {/* Error Message */}
-        <AnimatePresence mode="wait">
-          {error && (
-            <motion.div 
-              key="error"
-              initial={{ opacity: 0, y: -5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 5 }}
-              className="mb-4 p-3 bg-rose-950/30 border border-rose-800 rounded-lg text-rose-400 text-xs font-mono flex items-center gap-2"
-            >
-              <ShieldAlert className="w-4 h-4" />
-              {error}
-            </motion.div>
+        {/* Form */}
+        <form className="login-form" onSubmit={handleSubmit}>
+          {mode === 'register' && (
+            <div className="login-field">
+              <label className="kx-label" htmlFor="fullName">Full Name</label>
+              <input
+                id="fullName"
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+                placeholder="Jane Doe"
+                className="kx-input"
+              />
+            </div>
           )}
-        </AnimatePresence>
 
-        {/* Email/Password Authentication Form */}
-        <div className="space-y-4 mb-6">
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-500" />
+          <div className="login-field">
+            <label className="kx-label" htmlFor="email">Email Address</label>
             <input
+              id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email address"
-              className="w-full pl-10 pr-4 py-3 bg-slate-800/40 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-steel transition-colors"
-              disabled={isScanning || scanSuccess}
+              required
+              placeholder="jane@example.com"
+              className="kx-input"
+              autoComplete="email"
             />
           </div>
-          <div className="relative">
-            <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-500" />
+
+          <div className="login-field">
+            <label className="kx-label" htmlFor="password">Password</label>
             <input
-              type={showPassword ? 'text' : 'password'}
+              id="password"
+              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              className="w-full pl-10 pr-12 py-3 bg-slate-800/40 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-steel transition-colors"
-              disabled={isScanning || scanSuccess}
+              required
+              placeholder="••••••••"
+              className="kx-input"
+              minLength={6}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-              disabled={isScanning || scanSuccess}
-            >
-              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-            </button>
           </div>
-        </div>
 
-        {/* Action Button */}
-        <button
-          onClick={handleEmailAuth}
-          disabled={isScanning || scanSuccess || !email || !password}
-          className="w-full py-3 bg-brand-navy hover:bg-brand-steel/20 text-slate-100 font-semibold rounded-xl border border-brand-steel/30 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-4"
-        >
-          {isScanning ? (
+          {error && (
+            <div className="kx-alert kx-alert-error">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              {error}
+            </div>
+          )}
+
+          <button
+            id="login-submit-btn"
+            type="submit"
+            disabled={loading}
+            className="kx-btn kx-btn-primary kx-btn-lg login-submit"
+            style={{ width: '100%' }}
+          >
+            {loading ? (
+              <>
+                <span className="kx-spinner" style={{ width: '18px', height: '18px', marginBottom: 0 }} />
+                {mode === 'login' ? 'Signing in…' : 'Creating account…'}
+              </>
+            ) : (
+              mode === 'login' ? 'Sign In' : 'Create Account'
+            )}
+          </button>
+        </form>
+
+        {/* Toggle */}
+        <div className="login-footer">
+          {mode === 'login' ? (
             <>
-              <RefreshCw className="w-5 h-5 animate-spin" />
-              <span>Authenticating...</span>
-            </>
-          ) : scanSuccess ? (
-            <>
-              <ShieldCheck className="w-5 h-5" />
-              <span>Access Granted</span>
+              Don't have an account?{' '}
+              <span className="link" onClick={() => { setMode('register'); setError(null); }}>
+                Sign up
+              </span>
             </>
           ) : (
             <>
-              <Unlock className="w-5 h-5" />
-              <span>{isLoginMode ? 'Unlock Vault' : 'Create Account'}</span>
+              Already have an account?{' '}
+              <span className="link" onClick={() => { setMode('login'); setError(null); }}>
+                Sign in
+              </span>
             </>
           )}
-        </button>
+        </div>
 
-        {/* Toggle Mode */}
-        <button
-          onClick={() => {
-            setIsLoginMode(!isLoginMode);
-            setError('');
-            setEmail('');
-            setPassword('');
+        {/* Feature pills */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            gap: '0.5rem',
+            flexWrap: 'wrap',
+            marginTop: '1.5rem',
+            paddingTop: '1.5rem',
+            borderTop: '1px solid var(--kx-border)',
           }}
-          disabled={isScanning || scanSuccess}
-          className="w-full py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
         >
-          {isLoginMode ? "Don't have an account? Register" : "Already have an account? Login"}
-        </button>
-      </motion.div>
-
-      {/* Subtle footer */}
-      <div className="mt-8 font-mono text-[9px] text-slate-600 z-10 text-center">
-        IDENTITYVAULT INC. SECURE INTERFACE ENGINE v4.0.2 • ACCREDITED FEDRAMP SYSTEM
+          {['🤖 AI Categorization', '🔒 Multi-tenant', '☁️ Cloud Mirror'].map((tag) => (
+            <span key={tag} className="kx-tag" style={{ fontSize: '0.6875rem' }}>
+              {tag}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -1,312 +1,435 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { apiClient, BackendRelationship } from '../api';
+import '../styles.css';
 
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Network, 
-  HelpCircle, 
-  ShieldCheck, 
-  Terminal, 
-  FileText, 
-  Award, 
-  TrendingUp, 
-  Sparkles,
-  Link2,
-  Lock,
-  Compass,
-  Info
-} from 'lucide-react';
-import { GraphNode, GraphLink } from '../types';
-import { initialGraphNodes, initialGraphLinks } from '../data';
+interface GraphNode {
+  id: string;
+  label: string;
+  type: string;
+  category?: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+}
+
+interface GraphEdge {
+  source: string;
+  target: string;
+  type: string;
+  strength: number;
+}
+
+const NODE_COLORS: Record<string, string> = {
+  document:    '#6366f1',
+  skill:       '#10b981',
+  certificate: '#f59e0b',
+  internship:  '#a855f7',
+  project:     '#06b6d4',
+  achievement: '#f43f5e',
+};
+
+const NODE_RADIUS = 28;
+const W = 800;
+const H = 520;
+
+function forceTick(nodes: GraphNode[], edges: GraphEdge[], alpha: number): GraphNode[] {
+  // Repulsion
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const dx = nodes[j].x - nodes[i].x;
+      const dy = nodes[j].y - nodes[i].y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const force = (3000 / (dist * dist)) * alpha;
+      nodes[i].vx -= (dx / dist) * force;
+      nodes[i].vy -= (dy / dist) * force;
+      nodes[j].vx += (dx / dist) * force;
+      nodes[j].vy += (dy / dist) * force;
+    }
+  }
+  // Attraction (edges)
+  edges.forEach((e) => {
+    const src = nodes.find((n) => n.id === e.source);
+    const tgt = nodes.find((n) => n.id === e.target);
+    if (!src || !tgt) return;
+    const dx = tgt.x - src.x;
+    const dy = tgt.y - src.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const desired = 160;
+    const force = ((dist - desired) / dist) * 0.04 * alpha * e.strength;
+    src.vx += dx * force;
+    src.vy += dy * force;
+    tgt.vx -= dx * force;
+    tgt.vy -= dy * force;
+  });
+  // Center gravity
+  nodes.forEach((n) => {
+    n.vx += (W / 2 - n.x) * 0.008 * alpha;
+    n.vy += (H / 2 - n.y) * 0.008 * alpha;
+    // Damping
+    n.vx *= 0.85;
+    n.vy *= 0.85;
+    n.x += n.vx;
+    n.y += n.vy;
+    // Boundary
+    n.x = Math.max(NODE_RADIUS + 10, Math.min(W - NODE_RADIUS - 10, n.x));
+    n.y = Math.max(NODE_RADIUS + 10, Math.min(H - NODE_RADIUS - 10, n.y));
+  });
+  return [...nodes];
+}
 
 export default function GraphView() {
-  const [nodes, setNodes] = useState<GraphNode[]>(initialGraphNodes);
-  const [links, setLinks] = useState<GraphLink[]>(initialGraphLinks);
-  const [activeNodeId, setActiveNodeId] = useState<string | null>('google-internship');
+  const [nodes, setNodes] = useState<GraphNode[]>([]);
+  const [edges, setEdges] = useState<GraphEdge[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const frameRef = useRef<number>(0);
+  const alphaRef = useRef(1);
+  const nodesRef = useRef<GraphNode[]>([]);
 
-  // Manual placement coordinates for stunning, balanced rendering (avoiding random overlaps)
-  const nodeCoordinates: Record<string, { x: number; y: number }> = {
-    'python': { x: 120, y: 150 },
-    'cloud-arch': { x: 260, y: 80 },
-    'ux-cert': { x: 140, y: 320 },
-    'final-portfolio': { x: 300, y: 260 },
-    'google-internship': { x: 440, y: 140 }
-  };
+  useEffect(() => { fetchGraph(); return () => cancelAnimationFrame(frameRef.current); }, []);
 
-  const getActiveNode = () => {
-    return nodes.find(n => n.id === activeNodeId) || nodes[0];
-  };
+  const fetchGraph = async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient.getGraph();
+      const rawNodes = data.nodes || [];
+      const rawEdges = data.edges || [];
 
-  const activeNode = getActiveNode();
+      // Map raw nodes to simulation nodes with x, y coordinates
+      const simulatedNodes = rawNodes.map((n: any) => ({
+        id: n.id,
+        label: n.label,
+        type: n.type,
+        category: n.category,
+        x: W / 2 + (Math.random() - 0.5) * 300,
+        y: H / 2 + (Math.random() - 0.5) * 250,
+        vx: 0,
+        vy: 0,
+      }));
 
-  // Highlight links connected to active node
-  const isLinkActive = (link: GraphLink) => {
-    if (!activeNodeId) return false;
-    return link.source === activeNodeId || link.target === activeNodeId;
-  };
+      const simulatedEdges = rawEdges.map((e: any) => ({
+        source: e.source,
+        target: e.target,
+        type: e.type,
+        strength: e.strength || 0.5,
+      }));
 
-  // Node descriptions for rich metadata inspection
-  const nodeMetadata: Record<string, { title: string; subtitle: string; desc: string; source: string; status: string }> = {
-    'python': {
-      title: 'Python Core Logic',
-      subtitle: 'Verified Proficient Skill',
-      desc: 'Advanced command of scripting, object-oriented pipelines, pandas structures, and PyTorch mathematical arrays.',
-      source: 'Coursera Verification & GitHub Sync',
-      status: 'VERIFIED SHIELD'
-    },
-    'cloud-arch': {
-      title: 'Distributed Cloud Architecture',
-      subtitle: 'System Architect Skill',
-      desc: 'Expertise in high-availability systems, Dockerized microservices, load-balancers, and low-latency storage queries.',
-      source: 'AWS Practitioner Badge Sync',
-      status: 'VERIFIED SHIELD'
-    },
-    'ux-cert': {
-      title: 'UX Specialist Certificate',
-      subtitle: 'Interaction Design Credential',
-      desc: 'Command over wireframes, accessibility requirements, color rhythm, cognitive flow patterns, and feedback loops.',
-      source: 'Google Professional Suite Sync',
-      status: 'VERIFIED SHIELD'
-    },
-    'final-portfolio': {
-      title: 'Academic & Career Portfolio v2',
-      subtitle: 'Design Portfolio Artifact',
-      desc: 'Comprehensive visual collection showcasing interactive applications, academic papers, and clean UI/UX components.',
-      source: 'IdentityVault Publisher Core',
-      status: 'VAULT SECURED'
-    },
-    'google-internship': {
-      title: 'Infrastructure Team Internship',
-      subtitle: 'Google Professional Experience',
-      desc: 'Summer 2024 placement focused on resolving high-traffic latency spikes and tuning database index performance.',
-      source: 'Enterprise SSO Verification',
-      status: 'FEDRAMP AUDITED'
+      nodesRef.current = simulatedNodes;
+      setNodes(simulatedNodes);
+      setEdges(simulatedEdges);
+
+      // Run simulation
+      alphaRef.current = 1;
+      const tick = () => {
+        if (alphaRef.current < 0.01) return;
+        nodesRef.current = forceTick(nodesRef.current, simulatedEdges, alphaRef.current);
+        setNodes([...nodesRef.current]);
+        alphaRef.current *= 0.97;
+        frameRef.current = requestAnimationFrame(tick);
+      };
+      frameRef.current = requestAnimationFrame(tick);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load graph');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const activeMeta = nodeMetadata[activeNode.id] || {
-    title: activeNode.label,
-    subtitle: 'System Artifact Node',
-    desc: 'Decrypted database point parsed securely by IdentityVault AI engine.',
-    source: 'Verified Cryptographic Signature',
-    status: 'SECURE'
+  // Drag handlers
+  const handleMouseDown = (e: React.MouseEvent, nodeId: string) => {
+    e.stopPropagation();
+    setDragging(nodeId);
+    cancelAnimationFrame(frameRef.current);
+    alphaRef.current = 0;
   };
 
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragging || !svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const scaleY = H / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+    nodesRef.current = nodesRef.current.map((n) =>
+      n.id === dragging ? { ...n, x, y, vx: 0, vy: 0 } : n
+    );
+    setNodes([...nodesRef.current]);
+  }, [dragging]);
+
+  const handleMouseUp = () => {
+    if (dragging) {
+      setDragging(null);
+      // Resume simulation briefly
+      alphaRef.current = 0.3;
+      const tick = () => {
+        if (alphaRef.current < 0.005) return;
+        nodesRef.current = forceTick(nodesRef.current, edges, alphaRef.current);
+        setNodes([...nodesRef.current]);
+        alphaRef.current *= 0.95;
+        frameRef.current = requestAnimationFrame(tick);
+      };
+      frameRef.current = requestAnimationFrame(tick);
+    }
+  };
+
+  const relTypeCounts: Record<string, number> = {};
+  edges.forEach((e) => {
+    relTypeCounts[e.type] = (relTypeCounts[e.type] || 0) + 1;
+  });
+
+  if (loading) {
+    return (
+      <div className="space-y-4 kx-fade-in">
+        <div className="kx-skeleton" style={{ height: 520, borderRadius: 'var(--kx-radius-xl)' }} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="kx-empty kx-fade-in">
+        <div className="kx-empty-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <div className="kx-empty-title">Failed to load graph</div>
+        <div className="kx-empty-desc">{error}</div>
+        <button onClick={fetchGraph} className="kx-btn kx-btn-primary">Retry</button>
+      </div>
+    );
+  }
+
+  if (nodes.length === 0) {
+    return (
+      <div className="kx-empty kx-fade-in">
+        <div className="kx-empty-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
+        </div>
+        <div className="kx-empty-title">No relationships yet</div>
+        <div className="kx-empty-desc">
+          Upload and process documents to build your relationship graph.
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div id="graph-view-root" className="space-y-6 select-none font-sans pb-12 text-left">
-      
-      {/* Informative Header card */}
-      <div className="bg-white p-5 rounded-3xl border border-slate-200/80 card-shadow flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <h3 className="font-semibold text-sm text-slate-800 font-display flex items-center gap-2">
-            <Network className="w-5 h-5 text-brand-steel" />
-            Skill Intelligence Network
-          </h3>
-          <p className="text-xs text-slate-500 max-w-xl leading-normal font-medium">
-            This graph maps document safe nodes and cross-checks them against professional benchmarks. Hover or click nodes to audit metadata connections.
-          </p>
-        </div>
-        
-        {/* Legends */}
-        <div className="flex flex-wrap items-center gap-3 font-mono text-[9px] font-semibold text-slate-500 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200/60">
-          <span className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 bg-brand-navy rounded-full" /> SKILLS
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 bg-amber-500 rounded-full" /> CERTS
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 bg-secondary rounded-full" /> PROJECTS
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 bg-purple-600 rounded-full" /> EXPERIENCE
-          </span>
+    <div className="space-y-5 kx-fade-in">
+      {/* Stats row */}
+      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+        {[
+          { label: 'Nodes', value: nodes.length, color: 'var(--kx-indigo)' },
+          { label: 'Edges', value: edges.length, color: 'var(--kx-violet)' },
+          { label: 'Rel. Types', value: Object.keys(relTypeCounts).length, color: 'var(--kx-cyan)' },
+        ].map((s) => (
+          <div
+            key={s.label}
+            style={{
+              background: 'var(--kx-glass)',
+              border: '1px solid var(--kx-border)',
+              borderRadius: 'var(--kx-radius-lg)',
+              padding: '0.75rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+            }}
+          >
+            <div style={{ fontFamily: 'var(--kx-font-display)', fontSize: '1.5rem', fontWeight: 700, color: s.color }}>
+              {s.value}
+            </div>
+            <div style={{ fontSize: '0.8125rem', color: 'var(--kx-text-muted)' }}>{s.label}</div>
+          </div>
+        ))}
+        <div
+          style={{
+            marginLeft: 'auto',
+            fontSize: '0.8125rem',
+            color: 'var(--kx-text-muted)',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          Drag nodes to explore
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        
-        {/* Interactive SVG Network Canvas (Col-span 3) */}
-        <div className="lg:col-span-3 bg-white rounded-3xl border border-slate-200/80 card-shadow overflow-hidden flex flex-col relative min-h-[400px]">
-          
-          {/* Inner ambient overlay */}
-          <div className="absolute top-4 left-4 flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-[9px] font-mono text-slate-500 border border-slate-200/50">
-            <Compass className="w-3.5 h-3.5 text-slate-400" />
-            <span>INTERACTIVE MAP PERSPECTIVE</span>
-          </div>
+      {/* SVG Graph */}
+      <div
+        style={{
+          background: 'var(--kx-glass)',
+          border: '1px solid var(--kx-glass-border)',
+          borderRadius: 'var(--kx-radius-xl)',
+          overflow: 'hidden',
+          position: 'relative',
+        }}
+      >
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          style={{ width: '100%', height: 520, cursor: dragging ? 'grabbing' : 'default' }}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        >
+          <defs>
+            <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="rgba(255,255,255,0.15)" />
+            </marker>
+            <filter id="glow">
+              <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+              <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
 
-          <div className="absolute bottom-4 right-4 text-[9px] font-mono text-slate-400 flex items-center gap-1">
-            <Lock className="w-3 h-3 text-emerald-500" />
-            <span>LOCAL CIPHER LAYOUT</span>
-          </div>
+          {/* Grid */}
+          <g opacity={0.04}>
+            {Array.from({ length: Math.floor(W / 40) + 1 }).map((_, i) => (
+              <line key={`v${i}`} x1={i * 40} y1={0} x2={i * 40} y2={H} stroke="white" strokeWidth={1}/>
+            ))}
+            {Array.from({ length: Math.floor(H / 40) + 1 }).map((_, i) => (
+              <line key={`h${i}`} x1={0} y1={i * 40} x2={W} y2={i * 40} stroke="white" strokeWidth={1}/>
+            ))}
+          </g>
 
-          {/* SVG Frame */}
-          <div className="flex-1 w-full relative min-h-[360px] flex items-center justify-center p-6">
-            <svg 
-              viewBox="0 0 600 400" 
-              className="w-full h-full max-w-lg aspect-[3/2] z-10"
-            >
-              <defs>
-                <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="4" result="blur" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-                
-                {/* Node stroke gradients */}
-                <linearGradient id="activeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#34618e" />
-                  <stop offset="100%" stopColor="#012440" />
-                </linearGradient>
-              </defs>
+          {/* Edges */}
+          {edges.map((e, i) => {
+            const src = nodes.find((n) => n.id === e.source);
+            const tgt = nodes.find((n) => n.id === e.target);
+            if (!src || !tgt) return null;
+            const isSelected = selectedNode && (selectedNode.id === src.id || selectedNode.id === tgt.id);
+            return (
+              <line
+                key={i}
+                x1={src.x}
+                y1={src.y}
+                x2={tgt.x}
+                y2={tgt.y}
+                stroke={isSelected ? 'rgba(99,102,241,0.6)' : 'rgba(255,255,255,0.08)'}
+                strokeWidth={isSelected ? 1.5 : 1}
+                markerEnd="url(#arrowhead)"
+                style={{ transition: 'stroke 0.2s ease' }}
+              />
+            );
+          })}
 
-              {/* Render links */}
-              {links.map((link, idx) => {
-                const sourceCoord = nodeCoordinates[link.source];
-                const targetCoord = nodeCoordinates[link.target];
-                if (!sourceCoord || !targetCoord) return null;
-
-                const active = isLinkActive(link);
-
-                return (
-                  <line
-                    key={idx}
-                    x1={sourceCoord.x}
-                    y1={sourceCoord.y}
-                    x2={targetCoord.x}
-                    y2={targetCoord.y}
-                    stroke={active ? '#34618e' : '#e2e8f0'}
-                    strokeWidth={active ? 2.5 : 1.5}
-                    strokeDasharray={active ? 'none' : '4 4'}
-                    className="transition-all duration-300"
+          {/* Nodes */}
+          {nodes.map((node) => {
+            const color = NODE_COLORS[node.type] || '#6366f1';
+            const isSelected = selectedNode?.id === node.id;
+            return (
+              <g
+                key={node.id}
+                style={{ cursor: 'grab' }}
+                onMouseDown={(e) => handleMouseDown(e, node.id)}
+                onClick={() => setSelectedNode(isSelected ? null : node)}
+              >
+                {/* Glow ring for selected */}
+                {isSelected && (
+                  <circle
+                    cx={node.x}
+                    cy={node.y}
+                    r={NODE_RADIUS + 8}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={2}
+                    opacity={0.4}
+                    filter="url(#glow)"
                   />
-                );
-              })}
+                )}
+                {/* Node circle */}
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r={NODE_RADIUS}
+                  fill={`${color}22`}
+                  stroke={color}
+                  strokeWidth={isSelected ? 2 : 1.5}
+                />
+                {/* Label */}
+                <text
+                  x={node.x}
+                  y={node.y + 4}
+                  textAnchor="middle"
+                  fill="white"
+                  fontSize={9}
+                  fontFamily="Inter, sans-serif"
+                  fontWeight={500}
+                >
+                  {node.label.length > 12 ? node.label.slice(0, 12) + '…' : node.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
 
-              {/* Render nodes */}
-              {nodes.map((node) => {
-                const coord = nodeCoordinates[node.id];
-                if (!coord) return null;
-
-                const isActive = node.id === activeNodeId;
-                
-                // Color map depending on category
-                let pinColor = '#34618e'; // Default brand steel
-                if (node.category === 'skills') pinColor = '#012440';
-                if (node.category === 'certifications') pinColor = '#f59e0b';
-                if (node.category === 'projects') pinColor = '#6366f1';
-                if (node.category === 'internships') pinColor = '#a855f7';
-
-                return (
-                  <g 
-                    key={node.id}
-                    onClick={() => setActiveNodeId(node.id)}
-                    className="cursor-pointer group select-none"
-                  >
-                    {/* Active aura ring */}
-                    {isActive && (
-                      <circle
-                        cx={coord.x}
-                        cy={coord.y}
-                        r={32}
-                        fill="none"
-                        stroke="#34618e"
-                        strokeWidth={1}
-                        strokeDasharray="3 3"
-                        className="animate-spin"
-                        style={{ transformOrigin: `${coord.x}px ${coord.y}px`, animationDuration: '8s' }}
-                      />
-                    )}
-
-                    {/* Outer circle base */}
-                    <circle
-                      cx={coord.x}
-                      cy={coord.y}
-                      r={isActive ? 24 : 20}
-                      fill={isActive ? '#ffffff' : '#f8fafc'}
-                      stroke={isActive ? 'url(#activeGradient)' : '#cbd5e1'}
-                      strokeWidth={isActive ? 3 : 1.5}
-                      className="transition-all duration-300 hover:stroke-slate-400 shadow-sm"
-                    />
-
-                    {/* Inner core circle pin */}
-                    <circle
-                      cx={coord.x}
-                      cy={coord.y}
-                      r={isActive ? 8 : 6}
-                      fill={pinColor}
-                      className="transition-all duration-300"
-                    />
-
-                    {/* Node Text Label */}
-                    <text
-                      x={coord.x}
-                      y={coord.y + (isActive ? 42 : 36)}
-                      textAnchor="middle"
-                      fill={isActive ? '#012440' : '#475569'}
-                      className={`text-[10px] font-semibold tracking-tight ${isActive ? 'font-bold' : ''} font-sans select-none`}
-                    >
-                      {node.label}
-                    </text>
-                  </g>
-                );
-              })}
-            </svg>
-          </div>
-
-        </div>
-
-        {/* Right Side: Security Audit Node Panel (Col-span 2) */}
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-3xl p-5 border border-slate-200/80 card-shadow h-full flex flex-col justify-between">
-            <div className="space-y-4">
-              
-              {/* Category indicator & title */}
-              <div className="space-y-1">
-                <span className="text-[10px] font-mono font-bold tracking-wider uppercase text-brand-steel bg-brand-steel/10 px-2 py-0.5 rounded-lg">
-                  {activeNode.category.toUpperCase()} NODE AUDIT
-                </span>
-                <h3 className="text-lg font-bold text-slate-800 font-display mt-2 tracking-tight">
-                  {activeMeta.title}
-                </h3>
-                <p className="text-xs font-semibold text-slate-400 font-sans">{activeMeta.subtitle}</p>
-              </div>
-
-              {/* Decrypted Description area */}
-              <div className="bg-slate-50/50 rounded-2xl p-4 border border-slate-200/60 text-xs text-slate-600 space-y-3 leading-relaxed">
-                <p className="font-medium">"{activeMeta.desc}"</p>
-                
-                <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] font-mono text-slate-500 font-bold">
-                  <span>VERIFICATION:</span>
-                  <span className="text-emerald-600">{activeMeta.status}</span>
-                </div>
-              </div>
-
-              {/* Data Provenance checklist */}
-              <div className="space-y-2">
-                <h4 className="font-bold text-[10px] font-mono text-slate-400 uppercase tracking-wider">Provenance Logs</h4>
-                
-                <div className="p-3 bg-slate-900 text-slate-300 rounded-xl font-mono text-[9px] border border-slate-800 text-left space-y-1.5">
-                  <div>SYS_INTEGRITY: AES-256 CHECK PASSED</div>
-                  <div>PROVENANCE: {activeMeta.source}</div>
-                  <div>HASH: SHA256-4AA9F8C2...</div>
-                </div>
-              </div>
-
+        {/* Selected node detail */}
+        {selectedNode && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '1rem',
+              right: '1rem',
+              background: 'var(--kx-surface-raised)',
+              border: '1px solid var(--kx-border)',
+              borderRadius: 'var(--kx-radius-lg)',
+              padding: '1rem',
+              minWidth: 200,
+              backdropFilter: 'blur(12px)',
+            }}
+          >
+            <div style={{ fontWeight: 600, color: 'var(--kx-text-bright)', marginBottom: '0.375rem' }}>
+              {selectedNode.label}
             </div>
-
-            <div className="pt-4 border-t border-slate-100 mt-4 flex items-center gap-2 text-[10px] text-slate-400 leading-normal font-medium">
-              <Info className="w-4 h-4 text-brand-steel shrink-0" />
-              <span>Selecting adjacent nodes updates cross-links mapping. AI automatically compiles nodes into career pathways.</span>
+            <div style={{ fontSize: '0.8125rem', color: 'var(--kx-text-muted)', marginBottom: '0.5rem' }}>
+              Type: <strong style={{ color: 'var(--kx-text)' }}>{selectedNode.type}</strong>
             </div>
-
+            <div style={{ fontSize: '0.8125rem', color: 'var(--kx-text-muted)' }}>
+              Connected to:{' '}
+              <strong style={{ color: 'var(--kx-text)' }}>
+                {edges.filter((e) => e.source === selectedNode.id || e.target === selectedNode.id).length} node{edges.filter((e) => e.source === selectedNode.id || e.target === selectedNode.id).length !== 1 ? 's' : ''}
+              </strong>
+            </div>
+            <button
+              onClick={() => setSelectedNode(null)}
+              style={{ marginTop: '0.75rem', background: 'none', border: 'none', color: 'var(--kx-text-muted)', cursor: 'pointer', fontSize: '0.75rem' }}
+            >
+              ✕ Dismiss
+            </button>
           </div>
-        </div>
-
+        )}
       </div>
 
+      {/* Legend */}
+      <div className="kx-card kx-fade-in">
+        <div className="kx-card-body">
+          <div className="graph-legend">
+            {Object.entries(NODE_COLORS).map(([type, color]) => (
+              <div key={type} className="graph-legend-item">
+                <div className="graph-legend-dot" style={{ background: color }} />
+                <span style={{ textTransform: 'capitalize' }}>{type}</span>
+              </div>
+            ))}
+          </div>
+          {Object.keys(relTypeCounts).length > 0 && (
+            <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--kx-border)', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              {Object.entries(relTypeCounts).map(([type, count]) => (
+                <span key={type} className="kx-tag">
+                  {type.replace(/_/g, ' ')} ({count})
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

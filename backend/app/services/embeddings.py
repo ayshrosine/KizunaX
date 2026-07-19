@@ -28,57 +28,53 @@ class EmbeddingService:
             self.client = None
             self.collection = None
     
-    def add_document_embedding(self, document_id: int, text: str, metadata: Dict):
+    def add_document_embedding(self, document_id: str, text: str, metadata: Dict):
         """Add document embedding to vector database"""
         if not self.collection:
             return None
-        
+
         try:
             # Generate embedding
             embedding = ai_service.generate_embedding(text)
-            
-            # Ensure user_id is in metadata for multi-user isolation
+
+            # user_id is MANDATORY for multi-user isolation
             if 'user_id' not in metadata:
-                print("Warning: user_id not in metadata, data isolation may be compromised")
-            
+                raise ValueError("user_id is required in metadata for data isolation")
+
             # Add to ChromaDB
             self.collection.add(
                 embeddings=[embedding],
                 documents=[text],
                 metadatas=[metadata],
-                ids=[str(document_id)]
+                ids=[document_id]
             )
-            
-            return str(document_id)
+
+            return document_id
         except Exception as e:
             print(f"Error adding embedding: {e}")
             return None
     
-    def search_similar(self, query: str, n_results: int = 5, filter_dict: Optional[Dict] = None) -> List[Dict]:
-        """Search for similar documents"""
+    def search_similar(self, query: str, user_id: str, n_results: int = 5, extra_where: Optional[Dict] = None) -> List[Dict]:
+        """Search for similar documents - user_id is MANDATORY for multi-tenant isolation"""
         if not self.collection:
             return []
-        
+
         try:
             # Generate query embedding
             query_embedding = ai_service.generate_embedding(query)
-            
-            # Ensure user_id filter is applied for data isolation
-            if filter_dict is None:
-                filter_dict = {}
-            
-            # Always include user_id in filter if provided for multi-user isolation
-            # If no user_id in filter, this is a potential security issue
-            if 'user_id' not in filter_dict:
-                print("Warning: Searching without user_id filter - may return data from all users")
-            
+
+            # user_id is MANDATORY for multi-user isolation
+            where = {"user_id": user_id}
+            if extra_where:
+                where.update(extra_where)
+
             # Search
             results = self.collection.query(
                 query_embeddings=[query_embedding],
                 n_results=n_results,
-                where=filter_dict
+                where=where
             )
-            
+
             # Format results
             formatted_results = []
             if results['ids'] and len(results['ids'][0]) > 0:
@@ -89,7 +85,7 @@ class EmbeddingService:
                         'metadata': results['metadatas'][0][i],
                         'distance': results['distances'][0][i]
                     })
-            
+
             return formatted_results
         except Exception as e:
             print(f"Error searching embeddings: {e}")
@@ -105,9 +101,9 @@ class EmbeddingService:
         except Exception as e:
             print(f"Error deleting embedding: {e}")
     
-    def update_document_embedding(self, document_id: int, text: str, metadata: Dict):
+    def update_document_embedding(self, document_id: str, text: str, metadata: Dict):
         """Update document embedding"""
-        self.delete_document(str(document_id))
+        self.delete_document(document_id)
         return self.add_document_embedding(document_id, text, metadata)
     
     def get_collection_stats(self) -> Dict:

@@ -185,7 +185,22 @@ class AIService:
             "confidence": 0.5
         }
         
-        # Simple keyword matching
+        # Simple skill extraction from content
+        known_skills = [
+            "python", "javascript", "react", "node.js", "node", "mongodb", "docker", 
+            "kubernetes", "sql", "java", "c++", "c#", "html", "css", "git", 
+            "aws", "azure", "gcp", "machine learning", "deep learning", "ai", "nlp"
+        ]
+        extracted_skills = []
+        for skill in known_skills:
+            if skill in combined:
+                if skill == "node":
+                    extracted_skills.append("node.js")
+                else:
+                    extracted_skills.append(skill)
+        result["skills"] = list(set(extracted_skills))
+        
+        # Simple keyword matching for category
         if any(word in combined for word in ["certificate", "certification", "course completion", "badge"]):
             result["category"] = "Certifications"
         elif any(word in combined for word in ["internship", "intern", "work experience", "employment"]):

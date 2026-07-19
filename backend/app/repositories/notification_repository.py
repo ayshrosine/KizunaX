@@ -82,14 +82,14 @@ class NotificationRepository:
     
     async def count_by_user(self, user_id: str) -> int:
         """Count notifications by user ID"""
-        return await Notification.count(Notification.user_id == user_id)
+        return await Notification.find(Notification.user_id == user_id).count()
     
     async def count_unread(self, user_id: str) -> int:
         """Count unread notifications by user ID"""
-        return await Notification.count(
+        return await Notification.find(
             Notification.user_id == user_id,
             Notification.read == False
-        )
+        ).count()
 
 # Singleton instance
 notification_repository = NotificationRepository()

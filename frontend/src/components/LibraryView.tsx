@@ -1,300 +1,380 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useState, useEffect } from 'react';
+import { apiClient, BackendDocument } from '../api';
+import '../styles.css';
 
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Folder, 
-  Trash2, 
-  Plus, 
-  Filter, 
-  Eye, 
-  Award, 
-  X, 
-  ArrowUpRight, 
-  ExternalLink,
-  ShieldAlert,
-  Calendar,
-  Lock,
-  Compass,
-  CheckCircle2,
-  FileCheck2,
-  FilePlus2
-} from 'lucide-react';
-import { Document, TimelineMilestone } from '../types';
+const CATEGORIES = ['All', 'Projects', 'Certifications', 'Internships', 'Achievements', 'Academics', 'Skills'];
 
-interface LibraryViewProps {
-  documents: Document[];
-  onDeleteDocument: (id: string) => void;
-  onPromoteToTimeline: (doc: Document) => void;
-  searchQuery: string;
-}
+const CATEGORY_ICONS: Record<string, string> = {
+  Projects: '🏗️', Certifications: '🎓', Internships: '💼',
+  Achievements: '🏆', Academics: '📚', Skills: '⚡', Uncategorized: '📄',
+};
 
-export default function LibraryView({ 
-  documents, 
-  onDeleteDocument, 
-  onPromoteToTimeline,
-  searchQuery 
-}: LibraryViewProps) {
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [activePreviewDoc, setActivePreviewDoc] = useState<Document | null>(null);
-  const [isPromotedNotification, setIsPromotedNotification] = useState<string | null>(null);
+const STATUS_BADGE: Record<string, { label: string; color: string }> = {
+  processed:  { label: 'Processed',  color: 'var(--kx-emerald)' },
+  processing: { label: 'Processing', color: 'var(--kx-amber)'   },
+  pending:    { label: 'Pending',    color: 'var(--kx-amber)'   },
+  failed:     { label: 'Failed',     color: 'var(--kx-rose)'    },
+};
 
-  // Derive categories dynamically
-  const categories = ['All', ...Array.from(new Set(documents.map(doc => doc.category)))];
+const VISUAL_CLASS: Record<string, string> = {
+  Projects: 'projects', Certifications: 'certifications',
+  Internships: 'internships', Achievements: 'achievements',
+  Academics: 'academics', Skills: 'skills',
+};
 
-  // Filter documents by category and search query
-  const filteredDocs = documents.filter((doc) => {
-    const matchesCategory = selectedCategory === 'All' || doc.category === selectedCategory;
-    const matchesSearch = doc.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          doc.category.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+const BADGE_CLASS: Record<string, string> = {
+  Projects: 'badge-projects', Certifications: 'badge-certifications',
+  Internships: 'badge-internships', Achievements: 'badge-achievements',
+  Academics: 'badge-academics', Skills: 'badge-skills',
+};
 
-  const handlePromote = (doc: Document) => {
-    onPromoteToTimeline(doc);
-    setIsPromotedNotification(doc.id);
-    setTimeout(() => {
-      setIsPromotedNotification(null);
-    }, 2500);
+export default function LibraryView() {
+  const [documents, setDocuments] = useState<BackendDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState('All');
+  const [search, setSearch] = useState('');
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  useEffect(() => { fetchDocuments(); }, []);
+
+  const fetchDocuments = async () => {
+    setLoading(true);
+    try {
+      const docs = await apiClient.getDocuments(100);
+      setDocuments(docs);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load documents');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <div id="library-view-root" className="space-y-6 select-none font-sans pb-12 text-left">
-      
-      {/* Category Filtering Rail */}
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200/80 card-shadow">
-        
-        {/* Filters */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-          <div className="p-2 bg-slate-100 rounded-xl text-slate-500 shrink-0">
-            <Filter className="w-4 h-4" />
-          </div>
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              id={`filter-btn-${cat.toLowerCase()}`}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                selectedCategory === cat 
-                  ? 'bg-brand-steel text-white shadow-md shadow-brand-steel/15' 
-                  : 'bg-slate-100 hover:bg-slate-200/80 text-slate-600'
-              }`}
-            >
-              {cat}
-            </button>
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this document? This cannot be undone.')) return;
+    setDeleting(id);
+    try {
+      await apiClient.deleteDocument(id);
+      setDocuments((prev) => prev.filter((d) => d.id !== id));
+    } catch (e: any) {
+      alert(e.message || 'Delete failed');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const filtered = documents.filter((doc) => {
+    const matchesFilter = filter === 'All' || doc.category === filter;
+    const matchesSearch =
+      !search ||
+      (doc.original_filename || doc.filename).toLowerCase().includes(search.toLowerCase()) ||
+      (doc.category || '').toLowerCase().includes(search.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  if (loading) {
+    return (
+      <div className="space-y-6 kx-fade-in">
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {CATEGORIES.map((c) => (
+            <div key={c} className="kx-skeleton" style={{ height: 30, width: 80, borderRadius: 'var(--kx-radius-full)' }} />
           ))}
         </div>
+        <div className="kx-grid kx-grid-auto">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="doc-card kx-fade-in" style={{ animationDelay: `${i * 40}ms` }}>
+              <div className="kx-skeleton" style={{ height: 140 }} />
+              <div className="doc-card-body">
+                <div className="kx-skeleton" style={{ height: 14, marginBottom: 8 }} />
+                <div className="kx-skeleton" style={{ height: 12, width: '60%' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-        {/* Counter */}
-        <div className="text-xs font-mono text-slate-400 shrink-0 font-medium">
-          SHOWING {filteredDocs.length} OF {documents.length} SECURE ASSETS
+  if (error) {
+    return (
+      <div className="kx-empty kx-fade-in">
+        <div className="kx-empty-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <div className="kx-empty-title">Failed to load library</div>
+        <div className="kx-empty-desc">{error}</div>
+        <button onClick={fetchDocuments} className="kx-btn kx-btn-primary">Retry</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Toolbar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+        {/* Search */}
+        <div className="kx-search-wrapper" style={{ maxWidth: 340 }}>
+          <span className="kx-search-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </span>
+          <input
+            id="library-search"
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search documents…"
+            className="kx-search-input"
+          />
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {/* View toggle */}
+          <div style={{ display: 'flex', background: 'var(--kx-glass)', border: '1px solid var(--kx-border)', borderRadius: 'var(--kx-radius-md)', padding: '3px' }}>
+            {(['grid', 'list'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                style={{
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  background: viewMode === mode ? 'var(--kx-glass-active)' : 'transparent',
+                  color: viewMode === mode ? 'var(--kx-text-bright)' : 'var(--kx-text-muted)',
+                  transition: 'var(--kx-transition-fast)',
+                }}
+              >
+                {mode === 'grid' ? '⊞' : '☰'}
+              </button>
+            ))}
+          </div>
+          {/* Doc count */}
+          <span style={{ fontSize: '0.8125rem', color: 'var(--kx-text-muted)' }}>
+            {filtered.length} / {documents.length} docs
+          </span>
+        </div>
       </div>
 
-      {/* Main Grid View */}
-      {filteredDocs.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
-          <AnimatePresence mode="popLayout">
-            {filteredDocs.map((doc, i) => (
-              <motion.div
-                key={doc.id}
-                id={`document-card-${doc.id}`}
-                layout
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ duration: 0.25, delay: i * 0.03 }}
-                className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden group card-shadow flex flex-col justify-between h-[340px]"
+      {/* Category filter pills */}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        {CATEGORIES.map((cat) => {
+          const count = cat === 'All' ? documents.length : documents.filter((d) => d.category === cat).length;
+          return (
+            <button
+              key={cat}
+              id={`filter-${cat.toLowerCase()}`}
+              onClick={() => setFilter(cat)}
+              className={`kx-tag${filter === cat ? ' active' : ''}`}
+              style={{ cursor: 'pointer', border: 'none' }}
+            >
+              {cat !== 'All' && <span>{CATEGORY_ICONS[cat]}</span>}
+              {cat}
+              <span
+                style={{
+                  background: 'var(--kx-glass-active)',
+                  borderRadius: 'var(--kx-radius-full)',
+                  padding: '1px 5px',
+                  fontSize: '0.6875rem',
+                }}
               >
-                
-                {/* Visual Header featuring hotlinked background */}
-                <div className="relative h-44 bg-slate-100 overflow-hidden shrink-0">
-                  <img 
-                    src={doc.bgImageUrl} 
-                    alt={doc.altText} 
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-slate-950/20" />
-                  
-                  {/* Category badge */}
-                  <div className="absolute top-3 left-3 px-2 py-0.5 bg-slate-900/90 backdrop-blur-sm rounded-lg text-[9px] font-mono font-bold uppercase tracking-wider text-brand-accent-light border border-slate-800">
-                    {doc.category}
-                  </div>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
-                  {/* Document Size label */}
-                  <div className="absolute bottom-3 right-3 px-2 py-0.5 bg-black/55 backdrop-blur-sm rounded font-mono text-[9px] text-white font-semibold">
-                    {doc.size}
-                  </div>
-                </div>
-
-                {/* Body Details */}
-                <div className="p-4 flex-1 flex flex-col justify-between">
-                  <div className="space-y-1">
-                    <h4 className="font-bold text-sm text-slate-800 line-clamp-1 group-hover:text-brand-steel transition-colors font-display" title={doc.title}>
-                      {doc.title}
-                    </h4>
-                    <p className="text-[10px] text-slate-400 font-mono">
-                      INDEXED: {doc.date}
-                    </p>
-                    <p className="text-xs text-slate-500 line-clamp-2 mt-1 leading-normal font-medium italic">
-                      "{doc.altText.split('.')[0]}."
-                    </p>
-                  </div>
-
-                  {/* Actions Tray */}
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-100 mt-2">
-                    {/* View Button */}
-                    <button
-                      id={`btn-view-${doc.id}`}
-                      onClick={() => setActivePreviewDoc(doc)}
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 text-[10px] font-mono font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>INSPECT</span>
-                    </button>
-
-                    <div className="flex items-center gap-1.5">
-                      {/* Promote / Verify timeline button */}
-                      <button
-                        id={`btn-verify-${doc.id}`}
-                        onClick={() => handlePromote(doc)}
-                        className={`p-1.5 rounded-lg text-slate-500 transition-all cursor-pointer ${
-                          isPromotedNotification === doc.id
-                            ? 'bg-emerald-100 text-emerald-600'
-                            : 'hover:bg-amber-100 hover:text-amber-600'
-                        }`}
-                        title="Promote and index directly as Verified Career Milestone"
-                      >
-                        {isPromotedNotification === doc.id ? (
-                          <FileCheck2 className="w-4.5 h-4.5" />
-                        ) : (
-                          <Award className="w-4.5 h-4.5" />
-                        )}
-                      </button>
-
-                      {/* Delete button */}
-                      <button
-                        id={`btn-delete-${doc.id}`}
-                        onClick={() => onDeleteDocument(doc.id)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
-                        title="Discard and shred from safe"
-                      >
-                        <Trash2 className="w-4.5 h-4.5" />
-                      </button>
-                    </div>
-
-                  </div>
-                </div>
-
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-      ) : (
-        <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 card-shadow flex flex-col items-center justify-center">
-          <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-4 border border-slate-200/50">
-            <Compass className="w-8 h-8" />
+      {/* Empty state */}
+      {filtered.length === 0 && (
+        <div className="kx-empty kx-fade-in">
+          <div className="kx-empty-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
           </div>
-          <h3 className="font-semibold text-lg text-slate-800 font-display">No Secure Assets Found</h3>
-          <p className="text-sm text-slate-500 max-w-sm mt-1">
-            We couldn't find any documents matching category "{selectedCategory}" or query "{searchQuery}".
-          </p>
+          <div className="kx-empty-title">No documents found</div>
+          <div className="kx-empty-desc">
+            {documents.length === 0
+              ? 'Upload your first document to get started.'
+              : 'Try adjusting your search or filter.'}
+          </div>
         </div>
       )}
 
-      {/* Dynamic Detail Modal Panel */}
-      <AnimatePresence>
-        {activePreviewDoc && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-3xl overflow-hidden max-w-2xl w-full border border-slate-200 shadow-2xl relative"
-            >
-              
-              {/* Close Button */}
-              <button
-                id="modal-close-btn"
-                onClick={() => setActivePreviewDoc(null)}
-                className="absolute top-4 right-4 p-2 bg-slate-900/10 hover:bg-slate-900/20 text-slate-700 hover:text-slate-900 rounded-full z-10 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
-              {/* High resolution hotlinked banner */}
-              <div className="h-64 bg-slate-900 relative">
-                <img 
-                  src={activePreviewDoc.bgImageUrl} 
-                  alt={activePreviewDoc.altText} 
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 to-transparent" />
-                <div className="absolute bottom-4 left-6">
-                  <span className="px-2 py-0.5 bg-brand-steel text-white rounded font-mono text-[9px] font-bold uppercase border border-white/20">
-                    {activePreviewDoc.category}
-                  </span>
-                  <h3 className="text-xl font-bold text-white mt-1.5 font-display">
-                    {activePreviewDoc.title}
-                  </h3>
-                </div>
-              </div>
-
-              {/* Content Description */}
-              <div className="p-6 space-y-5 text-left">
-                <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200/50 font-mono text-xs text-slate-600">
-                  <div>
-                    <span className="text-slate-400 block uppercase text-[10px]">Indexed Date</span>
-                    <strong className="text-slate-800">{activePreviewDoc.date}</strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block uppercase text-[10px]">Cryptographic Size</span>
-                    <strong className="text-slate-800">{activePreviewDoc.size}</strong>
-                  </div>
+      {/* Grid view */}
+      {viewMode === 'grid' && filtered.length > 0 && (
+        <div className="kx-grid kx-grid-auto">
+          {filtered.map((doc, i) => {
+            const cat = doc.category || 'Uncategorized';
+            const visualClass = VISUAL_CLASS[cat] || 'general';
+            const badgeClass = BADGE_CLASS[cat] || 'badge-general';
+            const status = STATUS_BADGE[doc.status] || { label: doc.status, color: 'var(--kx-text-muted)' };
+            return (
+              <div key={doc.id} className="doc-card kx-fade-in" style={{ animationDelay: `${Math.min(i, 10) * 40}ms` }}>
+                {/* Visual header */}
+                <div className={`doc-card-visual ${visualClass}`}>
+                  <span className="doc-card-icon">{CATEGORY_ICONS[cat] || '📄'}</span>
+                  {/* Status dot */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 10,
+                      right: 10,
+                      width: 9,
+                      height: 9,
+                      borderRadius: '50%',
+                      background: status.color,
+                      boxShadow: `0 0 6px ${status.color}`,
+                    }}
+                  />
                 </div>
 
-                <div className="space-y-1.5">
-                  <h4 className="font-bold text-xs text-slate-400 uppercase tracking-wider font-mono">Verified Artifact Description</h4>
-                  <p className="text-sm text-slate-600 leading-relaxed font-medium">
-                    {activePreviewDoc.altText}
-                  </p>
+                {/* Body */}
+                <div className="doc-card-body">
+                  <div className="doc-card-title" title={doc.original_filename || doc.filename}>
+                    {doc.original_filename || doc.filename}
+                  </div>
+                  <div style={{ marginBottom: '0.5rem' }}>
+                    <span className={`doc-card-badge ${badgeClass}`}>{cat}</span>
+                  </div>
+                  <div className="doc-card-meta">
+                    <span>{new Date(doc.created_at).toLocaleDateString()}</span>
+                    <span>{doc.file_size_bytes ? `${Math.round(doc.file_size_bytes / 1024)} KB` : '—'}</span>
+                  </div>
+                  {/* Drive / Notion badges */}
+                  {doc.external_links && (
+                    <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem' }}>
+                      {doc.external_links.google_drive?.status === 'synced' && (
+                        <a
+                          href={doc.external_links.google_drive.web_view_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            fontSize: '0.6875rem',
+                            background: 'rgba(66,133,244,0.12)',
+                            color: '#4285f4',
+                            padding: '2px 7px',
+                            borderRadius: 'var(--kx-radius-full)',
+                            fontWeight: 600,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          📂 Drive
+                        </a>
+                      )}
+                      {doc.external_links.notion?.status === 'synced' && (
+                        <a
+                          href={doc.external_links.notion.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            fontSize: '0.6875rem',
+                            background: 'rgba(255,255,255,0.08)',
+                            color: 'var(--kx-text)',
+                            padding: '2px 7px',
+                            borderRadius: 'var(--kx-radius-full)',
+                            fontWeight: 600,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          📝 Notion
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {/* Integration triggers */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-slate-100">
-                  <div className="flex items-center gap-2 text-xs text-slate-500 font-mono">
-                    <Lock className="w-4 h-4 text-emerald-500" />
-                    <span>CLIENT-SIDE LOCK VERIFIED</span>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      id="modal-promote-btn"
-                      onClick={() => {
-                        handlePromote(activePreviewDoc);
-                        setActivePreviewDoc(null);
-                      }}
-                      className="px-4 py-2 bg-brand-steel hover:bg-brand-blue text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shadow-md"
+                {/* Actions */}
+                <div className="doc-card-actions">
+                  {doc.storage_url && (
+                    <a
+                      href={doc.storage_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="kx-btn kx-btn-ghost kx-btn-sm"
+                      style={{ flex: 1 }}
                     >
-                      <Award className="w-4 h-4" />
-                      <span>Promote to Verified Milestone</span>
-                    </button>
-                  </div>
+                      View
+                    </a>
+                  )}
+                  <button
+                    onClick={() => handleDelete(doc.id)}
+                    disabled={deleting === doc.id}
+                    className="kx-btn kx-btn-danger kx-btn-sm"
+                  >
+                    {deleting === doc.id ? '…' : 'Delete'}
+                  </button>
                 </div>
-
               </div>
+            );
+          })}
+        </div>
+      )}
 
-            </motion.div>
+      {/* List view */}
+      {viewMode === 'list' && filtered.length > 0 && (
+        <div className="kx-card">
+          <div className="kx-card-body" style={{ padding: 0 }}>
+            {filtered.map((doc, i) => {
+              const cat = doc.category || 'Uncategorized';
+              const status = STATUS_BADGE[doc.status] || { label: doc.status, color: 'var(--kx-text-muted)' };
+              return (
+                <div
+                  key={doc.id}
+                  className="kx-fade-in"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '1rem',
+                    padding: '0.875rem 1.25rem',
+                    borderBottom: i < filtered.length - 1 ? '1px solid var(--kx-border)' : 'none',
+                    transition: 'var(--kx-transition-fast)',
+                    animationDelay: `${Math.min(i, 10) * 30}ms`,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--kx-glass)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <span style={{ fontSize: '1.25rem' }}>{CATEGORY_ICONS[cat] || '📄'}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="truncate" style={{ fontWeight: 500, color: 'var(--kx-text-bright)', fontSize: '0.9375rem' }}>
+                      {doc.original_filename || doc.filename}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--kx-text-muted)' }}>
+                      {cat} · {new Date(doc.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '0.75rem', color: status.color, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    {status.label}
+                  </span>
+                  {doc.storage_url && (
+                    <a
+                      href={doc.storage_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="kx-btn kx-btn-ghost kx-btn-sm"
+                    >
+                      View
+                    </a>
+                  )}
+                  <button
+                    onClick={() => handleDelete(doc.id)}
+                    disabled={deleting === doc.id}
+                    className="kx-btn kx-btn-danger kx-btn-sm"
+                  >
+                    {deleting === doc.id ? '…' : 'Delete'}
+                  </button>
+                </div>
+              );
+            })}
           </div>
-        )}
-      </AnimatePresence>
-
+        </div>
+      )}
     </div>
   );
 }

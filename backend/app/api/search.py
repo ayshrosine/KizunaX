@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.mongodb_models import Document, DocumentCategory
 from app.core.security import get_current_active_user, User
@@ -12,7 +12,7 @@ router = APIRouter()
 class SearchRequest(BaseModel):
     query: str
     category: Optional[DocumentCategory] = None
-    limit: int = Query(10, ge=1, le=100)
+    limit: int = Field(10, ge=1, le=100)
 
 class SearchResponse(BaseModel):
     query: str

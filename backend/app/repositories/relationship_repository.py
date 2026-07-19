@@ -22,6 +22,10 @@ class RelationshipRepository:
             Relationship.user_id == user_id
         ).skip(skip).limit(limit).sort("-created_at").to_list()
     
+    async def find_by_user(self, user_id: str, skip: int = 0, limit: int = 100) -> List[Relationship]:
+        """Find relationships by user ID with pagination (alias)"""
+        return await self.find_by_user_id(user_id, skip, limit)
+    
     async def find_by_source(self, user_id: str, source_type: str, source_id: str) -> List[Relationship]:
         """Find relationships by source"""
         return await Relationship.find(
@@ -29,6 +33,24 @@ class RelationshipRepository:
             Relationship.source_type == source_type,
             Relationship.source_id == source_id
         ).to_list()
+    
+    async def find_by_source_id(self, source_id: str, user_id: str) -> List[Relationship]:
+        """Find relationships by source ID and user ID"""
+        return await Relationship.find(
+            Relationship.user_id == user_id,
+            Relationship.source_id == source_id
+        ).to_list()
+    
+    async def find_by_edge(self, user_id: str, source_id: str, target_id: str, relationship_type: Optional[RelationshipType] = None) -> Optional[Relationship]:
+        """Find relationship by source, target, and optional type"""
+        filters = [
+            Relationship.user_id == user_id,
+            Relationship.source_id == source_id,
+            Relationship.target_id == target_id
+        ]
+        if relationship_type:
+            filters.append(Relationship.relationship_type == relationship_type)
+        return await Relationship.find_one(*filters)
     
     async def find_by_target(self, user_id: str, target_type: str, target_id: str) -> List[Relationship]:
         """Find relationships by target"""
@@ -85,14 +107,14 @@ class RelationshipRepository:
     
     async def count_by_user(self, user_id: str) -> int:
         """Count relationships by user ID"""
-        return await Relationship.count(Relationship.user_id == user_id)
+        return await Relationship.find(Relationship.user_id == user_id).count()
     
     async def count_by_type(self, user_id: str, relationship_type: RelationshipType) -> int:
         """Count relationships by type"""
-        return await Relationship.count(
+        return await Relationship.find(
             Relationship.user_id == user_id,
             Relationship.relationship_type == relationship_type
-        )
+        ).count()
 
 # Singleton instance
 relationship_repository = RelationshipRepository()

@@ -1,303 +1,373 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  TrendingUp, 
-  Sparkles, 
-  Award, 
-  CheckCircle, 
-  ShieldAlert, 
-  ChevronRight, 
-  Briefcase, 
-  Cpu, 
-  Terminal,
-  LineChart,
-  Info,
-  ExternalLink
-} from 'lucide-react';
-import { CareerPath } from '../types';
-import { initialCareerPaths } from '../data';
+import React, { useState, useEffect } from 'react';
+import { apiClient, BackendSkill } from '../api';
+import '../styles.css';
 
 export default function InsightsView() {
-  const [paths, setPaths] = useState<CareerPath[]>(initialCareerPaths);
-  const [activePathId, setActivePathId] = useState<string>('path-1');
+  const [skills, setSkills] = useState<BackendSkill[]>([]);
+  const [gaps, setGaps] = useState<any>(null);
+  const [careerPaths, setCareerPaths] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'skills' | 'gaps' | 'careers'>('skills');
 
-  const activePath = paths.find(p => p.id === activePathId) || paths[0];
+  useEffect(() => { fetchData(); }, []);
 
-  // Specific career advice maps
-  const careerBenchmarks: Record<string, { requirements: string[]; actions: string[]; salary: string; outlook: string }> = {
-    'path-1': {
-      requirements: [
-        "Verified mastery in Python Core Logic (Coursera SSO)",
-        "Experience on Google Infrastructure latency optimization",
-        "Expertise in High Availability Cloud Architecture"
-      ],
-      actions: [
-        "Index your Kubernetes or Terraform configurations into IdentityVault Ingestion Portal.",
-        "Request an automated credential seal for your AWS Cloud Practitioner certificate."
-      ],
-      salary: "$165k - $210k Average",
-      outlook: "Extremely Strong (+24% YoY growth)"
-    },
-    'path-2': {
-      requirements: [
-        "Verified Python ETL pipeline scripts",
-        "Data Science leadership credentials (Club Lead Workshops)"
-      ],
-      actions: [
-        "Upload a certified Scala or Java artifact to complete database benchmarks.",
-        "Index a large-scale database schema diagram to unlock Distributed Storage validation."
-      ],
-      salary: "$140k - $175k Average",
-      outlook: "Strong (+18% YoY growth)"
-    },
-    'path-3': {
-      requirements: [
-        "Verified UX Interaction Design certificate (Sep 2023)",
-        "Club mentoring leadership experience"
-      ],
-      actions: [
-        "Upload verified financial models, product roadmap briefs, or UX case study artifacts.",
-        "Complete a certified Agile scrum-master course and ingest credentials."
-      ],
-      salary: "$130k - $160k Average",
-      outlook: "Stable (+12% YoY growth)"
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [skillsData, gapsData, pathsData] = await Promise.all([
+        apiClient.getSkillsInsights(),
+        apiClient.getSkillGaps(),
+        apiClient.getCareerPaths(),
+      ]);
+      setSkills(skillsData);
+      setGaps(gapsData);
+      setCareerPaths(pathsData.paths || []);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load insights');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const activeBenchmark = careerBenchmarks[activePath.id] || {
-    requirements: ["Basic asset uploads verified"],
-    actions: ["Keep indexing credentials to train system parameters."],
-    salary: "$100k+ Average",
-    outlook: "Stable"
-  };
+  const topSkills = [...skills].sort((a, b) => (b.confidence_score || 0) - (a.confidence_score || 0)).slice(0, 15);
+  const evidencedSkills = skills.filter((s) => s.has_evidence);
+  const resumeSkills = skills.filter((s) => s.on_resume);
+
+  if (loading) {
+    return (
+      <div className="space-y-6 kx-fade-in">
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="kx-skeleton" style={{ height: 38, width: 120, borderRadius: 'var(--kx-radius-md)' }} />
+          ))}
+        </div>
+        <div className="kx-grid kx-grid-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="kx-card" style={{ animationDelay: `${i * 60}ms` }}>
+              <div className="kx-card-body">
+                <div className="kx-skeleton" style={{ height: 40, width: '50%', marginBottom: 8 }} />
+                <div className="kx-skeleton" style={{ height: 12, width: '70%' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="kx-card">
+          <div className="kx-card-body space-y-4">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div className="kx-skeleton" style={{ height: 14, width: 120 }} />
+                <div className="kx-skeleton" style={{ flex: 1, height: 8 }} />
+                <div className="kx-skeleton" style={{ height: 14, width: 40 }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="kx-empty kx-fade-in">
+        <div className="kx-empty-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <div className="kx-empty-title">Failed to load insights</div>
+        <div className="kx-empty-desc">{error}</div>
+        <button onClick={fetchData} className="kx-btn kx-btn-primary">Retry</button>
+      </div>
+    );
+  }
+
+  if (skills.length === 0) {
+    return (
+      <div className="kx-empty kx-fade-in">
+        <div className="kx-empty-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+        </div>
+        <div className="kx-empty-title">No insights yet</div>
+        <div className="kx-empty-desc">Upload documents so the AI can extract your skills and generate career insights.</div>
+      </div>
+    );
+  }
+
+  const tabs = [
+    { id: 'skills', label: '⚡ Skills', count: skills.length },
+    { id: 'gaps', label: '🎯 Skill Gaps', count: gaps?.total || 0 },
+    { id: 'careers', label: '🚀 Career Paths', count: careerPaths.length },
+  ] as const;
 
   return (
-    <div id="insights-view-root" className="space-y-6 select-none font-sans pb-12 text-left">
-      
-      {/* Banner */}
-      <div className="bg-white p-5 rounded-3xl border border-slate-200/80 card-shadow flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <h3 className="font-semibold text-sm text-slate-800 font-display flex items-center gap-2">
-            <LineChart className="w-5 h-5 text-brand-steel" />
-            AI Career Pathway Matcher
-          </h3>
-          <p className="text-xs text-slate-500 max-w-xl leading-normal font-medium">
-            IdentityVault AI continuously cross-checks your verified timeline milestones against global professional benchmarks to project high-probability career matching models.
-          </p>
+    <div className="space-y-5">
+      {/* Summary stats */}
+      <div className="kx-grid kx-grid-3 kx-fade-in">
+        <div className="stat-card indigo">
+          <div className="stat-icon indigo">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </div>
+          <div className="stat-info">
+            <div className="stat-label">Total Skills</div>
+            <div className="stat-value">{skills.length}</div>
+          </div>
         </div>
-        
-        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-lg text-[10px] font-mono font-bold uppercase border border-emerald-200 shrink-0">
-          <Sparkles className="w-4 h-4 text-emerald-600 animate-pulse" />
-          <span>PARAMETER MATCHERS: CALIBRATED</span>
+        <div className="stat-card emerald">
+          <div className="stat-icon emerald">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+          </div>
+          <div className="stat-info">
+            <div className="stat-label">With Evidence</div>
+            <div className="stat-value">{evidencedSkills.length}</div>
+          </div>
+        </div>
+        <div className="stat-card amber">
+          <div className="stat-icon amber">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+          </div>
+          <div className="stat-info">
+            <div className="stat-label">On Resume</div>
+            <div className="stat-value">{resumeSkills.length}</div>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-        
-        {/* Left Side: Career Pathway List (Col-span 2) */}
-        <div className="xl:col-span-2 space-y-4">
-          <h4 className="font-bold text-[10px] font-mono text-slate-400 uppercase tracking-wider">PROJECTED PATHS</h4>
-          
-          <div className="space-y-3">
-            {paths.map((p) => {
-              const isActive = p.id === activePathId;
-              return (
-                <button
-                  key={p.id}
-                  id={`career-path-btn-${p.id}`}
-                  onClick={() => setActivePathId(p.id)}
-                  className={`w-full text-left p-5 rounded-2xl border transition-all card-shadow flex items-center justify-between group cursor-pointer relative overflow-hidden ${
-                    isActive 
-                      ? 'bg-slate-900 border-slate-800 text-slate-100 shadow-md' 
-                      : 'bg-white hover:bg-slate-50 border-slate-200/80 text-slate-600'
-                  }`}
-                >
-                  <div className="space-y-1 pr-4">
-                    <h4 className={`font-bold text-sm tracking-tight font-display transition-colors ${isActive ? 'text-white' : 'text-slate-800'}`}>
-                      {p.title}
-                    </h4>
-                    <p className={`text-xs leading-normal line-clamp-2 font-medium ${isActive ? 'text-slate-300' : 'text-slate-500'}`}>
-                      {p.description}
-                    </p>
-                  </div>
+      {/* Tab navigation */}
+      <div
+        className="kx-fade-in kx-fade-in-delay-1"
+        style={{
+          display: 'flex',
+          background: 'var(--kx-glass)',
+          border: '1px solid var(--kx-border)',
+          borderRadius: 'var(--kx-radius-lg)',
+          padding: '4px',
+          gap: '4px',
+        }}
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            id={`tab-${tab.id}`}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              flex: 1,
+              padding: '0.625rem 1rem',
+              borderRadius: 'var(--kx-radius-md)',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              fontFamily: 'var(--kx-font)',
+              transition: 'var(--kx-transition)',
+              background: activeTab === tab.id ? 'var(--kx-glass-active)' : 'transparent',
+              color: activeTab === tab.id ? 'var(--kx-text-bright)' : 'var(--kx-text-muted)',
+            }}
+          >
+            {tab.label}
+            {tab.count > 0 && (
+              <span
+                style={{
+                  marginLeft: '0.5rem',
+                  fontSize: '0.75rem',
+                  background: activeTab === tab.id ? 'rgba(99,102,241,0.2)' : 'var(--kx-glass)',
+                  padding: '1px 6px',
+                  borderRadius: 'var(--kx-radius-full)',
+                }}
+              >
+                {tab.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
 
-                  {/* SVG percentage ring dial */}
-                  <div className="relative w-14 h-14 shrink-0 flex items-center justify-center">
-                    <svg className="w-full h-full -rotate-90">
-                      {/* background circle */}
-                      <circle 
-                        cx="28" 
-                        cy="28" 
-                        r="22" 
-                        fill="none" 
-                        stroke={isActive ? '#1e293b' : '#f1f5f9'} 
-                        strokeWidth="3.5" 
-                      />
-                      {/* highlighted arc */}
-                      <motion.circle 
-                        cx="28" 
-                        cy="28" 
-                        r="22" 
-                        fill="none" 
-                        stroke={isActive ? '#34618e' : '#012440'} 
-                        strokeWidth="4" 
-                        strokeDasharray={2 * Math.PI * 22}
-                        strokeDashoffset={2 * Math.PI * 22 * (1 - p.match / 100)}
-                        transition={{ duration: 0.8 }}
-                      />
-                    </svg>
-                    <span className="absolute text-[11px] font-mono font-bold text-center">
-                      {p.match}%
+      {/* ── Skills Tab ── */}
+      {activeTab === 'skills' && (
+        <div className="kx-card kx-fade-in">
+          <div className="kx-card-header">
+            <span className="kx-card-title">Top Skills by Confidence</span>
+          </div>
+          <div className="kx-card-body">
+            {topSkills.map((skill, i) => (
+              <div
+                key={skill.id}
+                className="skill-bar kx-fade-in"
+                style={{ animationDelay: `${i * 40}ms` }}
+              >
+                <div className="skill-name truncate" title={skill.name}>
+                  {skill.name}
+                </div>
+                <div className="skill-bar-track">
+                  <div
+                    className="skill-bar-fill"
+                    style={{ width: `${Math.round((skill.confidence_score || 0) * 100)}%` }}
+                  />
+                </div>
+                <div className="skill-score">
+                  {Math.round((skill.confidence_score || 0) * 100)}
+                </div>
+                {skill.has_evidence && (
+                  <span
+                    title="Has documentary evidence"
+                    style={{ fontSize: '0.875rem', flexShrink: 0 }}
+                  >
+                    ✅
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Gaps Tab ── */}
+      {activeTab === 'gaps' && (
+        <div className="space-y-4 kx-fade-in">
+          {gaps?.total === 0 ? (
+            <div className="kx-empty">
+              <div className="kx-empty-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+              </div>
+              <div className="kx-empty-title">No skill gaps detected</div>
+              <div className="kx-empty-desc">All detected skills have supporting evidence.</div>
+            </div>
+          ) : (
+            <div className="kx-card">
+              <div className="kx-card-header">
+                <span className="kx-card-title">🎯 Skills Needing Evidence</span>
+                <span style={{ fontSize: '0.8125rem', color: 'var(--kx-rose)' }}>
+                  {gaps?.total - gaps?.with_evidence} unverified
+                </span>
+              </div>
+              <div className="kx-card-body" style={{ padding: 0 }}>
+                {(gaps?.skills || []).filter((s: BackendSkill) => !s.has_evidence).map((skill: BackendSkill, i: number) => (
+                  <div
+                    key={skill.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      padding: '0.875rem 1.25rem',
+                      borderBottom: '1px solid var(--kx-border)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: 'var(--kx-amber)',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 500, color: 'var(--kx-text-bright)', fontSize: '0.9375rem' }}>
+                        {skill.name}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--kx-text-muted)' }}>
+                        Detected but no document evidence
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        background: 'rgba(245,158,11,0.1)',
+                        color: 'var(--kx-amber)',
+                        padding: '3px 8px',
+                        borderRadius: 'var(--kx-radius-full)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Unverified
                     </span>
                   </div>
-
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Miniature verified skill badge list */}
-          <div className="bg-white rounded-3xl p-5 border border-slate-200/80 card-shadow space-y-3">
-            <h4 className="font-bold text-[10px] font-mono text-slate-400 uppercase tracking-wider">SECURE SKILL SEALS</h4>
-            
-            <div className="grid grid-cols-2 gap-2">
-              <div className="p-2.5 bg-slate-50 border border-slate-200/60 rounded-xl flex items-center gap-2 text-[11px] font-semibold text-slate-700">
-                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Python Master</span>
-              </div>
-              <div className="p-2.5 bg-slate-50 border border-slate-200/60 rounded-xl flex items-center gap-2 text-[11px] font-semibold text-slate-700">
-                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Cloud Architect</span>
-              </div>
-              <div className="p-2.5 bg-slate-50 border border-slate-200/60 rounded-xl flex items-center gap-2 text-[11px] font-semibold text-slate-700">
-                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Interaction Designer</span>
-              </div>
-              <div className="p-2.5 bg-slate-50 border border-slate-200/60 rounded-xl flex items-center gap-2 text-[11px] font-semibold text-slate-700">
-                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Latency Optimizer</span>
+                ))}
               </div>
             </div>
-          </div>
-
+          )}
         </div>
+      )}
 
-        {/* Right Side: Specific path gap analysis (Col-span 3) */}
-        <div className="xl:col-span-3">
-          <div className="bg-white rounded-3xl p-6 border border-slate-200/80 card-shadow h-full flex flex-col justify-between">
-            <div className="space-y-6">
-              
-              {/* Header metrics */}
-              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-slate-100 pb-5">
-                <div>
-                  <span className="text-[10px] font-mono font-bold tracking-wider uppercase text-brand-steel bg-brand-steel/10 px-2 py-0.5 rounded-lg">
-                    GAP ANALYSIS REPORT
-                  </span>
-                  <h3 className="text-lg font-bold text-slate-800 font-display mt-2 tracking-tight">
-                    {activePath.title}
-                  </h3>
-                </div>
-
-                <div className="flex items-center gap-4 text-left font-mono text-[10px] text-slate-500 font-semibold">
-                  <div>
-                    <span className="text-slate-400 block uppercase text-[9px]">Market Demand</span>
-                    <span className="text-slate-800">{activeBenchmark.outlook}</span>
-                  </div>
-                  <span className="text-slate-200">|</span>
-                  <div>
-                    <span className="text-slate-400 block uppercase text-[9px]">Compensation</span>
-                    <span className="text-slate-800">{activeBenchmark.salary}</span>
-                  </div>
-                </div>
+      {/* ── Careers Tab ── */}
+      {activeTab === 'careers' && (
+        <div className="space-y-4 kx-fade-in">
+          {careerPaths.length === 0 ? (
+            <div className="kx-empty">
+              <div className="kx-empty-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+                </svg>
               </div>
-
-              {/* Responsive custom progress bars mapping credentials gap */}
-              <div className="space-y-4 text-left">
-                <h4 className="font-bold text-[10px] font-mono text-slate-400 uppercase tracking-wider">INTELLIGENCE METRIC SNAPSHOTS</h4>
-                
-                <div className="space-y-3">
-                  {/* Technical Skills match */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs font-semibold text-slate-700">
-                      <span>Technical Competence Matching</span>
-                      <span className="font-mono">{activePath.technicalSkills}%</span>
-                    </div>
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                      <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${activePath.technicalSkills}%` }}
-                        className="h-full bg-brand-steel"
-                        transition={{ duration: 0.6 }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Leadership matches */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs font-semibold text-slate-700">
-                      <span>Leadership Experience Matching</span>
-                      <span className="font-mono">{activePath.leadershipExperience}%</span>
-                    </div>
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                      <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${activePath.leadershipExperience}%` }}
-                        className="h-full bg-indigo-600"
-                        transition={{ duration: 0.6 }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Grid of Verified credentials + GAP gaps */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-left">
-                
-                {/* Requirements satisfied */}
-                <div className="space-y-2">
-                  <h4 className="font-bold text-[10px] font-mono text-emerald-600 uppercase tracking-wider">Satisfied Vault Seals</h4>
-                  <ul className="space-y-2">
-                    {activeBenchmark.requirements.map((req, idx) => (
-                      <li key={idx} className="flex gap-2 text-xs text-slate-600 font-medium">
-                        <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                        <span>{req}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Gap actions required */}
-                <div className="space-y-2">
-                  <h4 className="font-bold text-[10px] font-mono text-amber-600 uppercase tracking-wider font-sans">Recommended Gap Actions</h4>
-                  <ul className="space-y-2">
-                    {activeBenchmark.actions.map((act, idx) => (
-                      <li key={idx} className="flex gap-2 text-xs text-slate-600 font-medium">
-                        <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                        <span>{act}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-              </div>
-
+              <div className="kx-empty-title">No career paths yet</div>
+              <div className="kx-empty-desc">Upload more documents to get AI career path recommendations.</div>
             </div>
-
-            <div className="pt-4 border-t border-slate-100 mt-6 flex items-center gap-2 text-[10px] text-slate-400 leading-normal font-medium">
-              <Info className="w-4 h-4 text-brand-steel shrink-0" />
-              <span>Matching calculations rely on FedRAMP compliance tags. Ingesting richer artifact schemas updates projections instantly.</span>
-            </div>
-
-          </div>
+          ) : (
+            careerPaths.map((path: any, i: number) => (
+              <div
+                key={path.id || i}
+                className="kx-card kx-fade-in"
+                style={{ animationDelay: `${i * 60}ms` }}
+              >
+                <div className="kx-card-body">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                    <div
+                      style={{
+                        fontFamily: 'var(--kx-font-display)',
+                        fontWeight: 700,
+                        fontSize: '1.0625rem',
+                        color: 'var(--kx-text-bright)',
+                      }}
+                    >
+                      🚀 {path.title}
+                    </div>
+                    <div
+                      style={{
+                        fontFamily: 'var(--kx-font-display)',
+                        fontWeight: 700,
+                        fontSize: '1.25rem',
+                        color: 'var(--kx-indigo)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {path.match}%
+                    </div>
+                  </div>
+                  <p style={{ fontSize: '0.875rem', color: 'var(--kx-text-secondary)', marginBottom: '1rem', lineHeight: 1.5 }}>
+                    {path.description}
+                  </p>
+                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 120 }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--kx-text-muted)', marginBottom: '4px' }}>Technical Skills</div>
+                      <div className="kx-progress">
+                        <div className="kx-progress-bar indigo" style={{ width: `${path.technicalSkills || 0}%` }} />
+                      </div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 120 }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--kx-text-muted)', marginBottom: '4px' }}>Leadership</div>
+                      <div className="kx-progress">
+                        <div className="kx-progress-bar emerald" style={{ width: `${path.leadershipExperience || 0}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
-
-      </div>
-
+      )}
     </div>
   );
 }

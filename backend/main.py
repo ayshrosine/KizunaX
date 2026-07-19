@@ -9,7 +9,6 @@ import os
 from datetime import datetime
 
 from app.core.config import settings
-from app.core.database import init_db
 from app.core.mongodb import init_mongodb, close_mongodb
 
 # Optional imports - make them non-blocking
@@ -59,12 +58,13 @@ app.add_exception_handler(Exception, general_exception_handler)
 # Initialize database on startup
 @app.on_event("startup")
 async def startup_event():
-    # Initialize SQLite (legacy, for compatibility)
-    init_db()
-    
     # Initialize MongoDB (primary database)
-    await init_mongodb()
-    
+    try:
+        await init_mongodb()
+    except Exception as e:
+        print(f"Warning: MongoDB initialization failed: {e}")
+        # Continue without MongoDB for demo purposes
+
     print(f"{settings.APP_NAME} v{settings.APP_VERSION} started successfully")
 
 # Close database on shutdown
@@ -80,13 +80,17 @@ async def health_check():
 
 # Include API routers
 try:
-    from app.api import upload, search, timeline, documents, auth
+    from app.api import upload, search, timeline, documents, auth, graph, insights, portfolio, integration
 
     app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
     app.include_router(upload.router, prefix="/api/upload", tags=["upload"])
     app.include_router(search.router, prefix="/api/search", tags=["search"])
     app.include_router(timeline.router, prefix="/api/timeline", tags=["timeline"])
     app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
+    app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
+    app.include_router(insights.router, prefix="/api/insights", tags=["insights"])
+    app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])
+    app.include_router(integration.router, prefix="/api/integrations", tags=["integrations"])
 except ImportError as e:
     print(f"Warning: Could not import API routers: {e}")
     print("Make sure all API modules are properly initialized")

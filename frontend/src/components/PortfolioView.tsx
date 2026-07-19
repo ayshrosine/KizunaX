@@ -1,327 +1,327 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useState, useEffect } from 'react';
+import { apiClient } from '../api';
+import '../styles.css';
 
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Briefcase, 
-  Sparkles, 
-  Eye, 
-  Lock, 
-  Share2, 
-  CheckCircle, 
-  ExternalLink, 
-  Award, 
-  RefreshCw, 
-  Settings, 
-  Grid,
-  Info,
-  Laptop
-} from 'lucide-react';
-import { TimelineMilestone } from '../types';
-import { PORTFOLIO_AVATAR, PORTFOLIO_PROJECT_IMAGE } from '../data';
+const CATEGORIES = ['Projects', 'Certifications', 'Internships', 'Achievements', 'Academics', 'Skills'];
 
-interface PortfolioViewProps {
-  milestones: TimelineMilestone[];
-}
+const THEMES = [
+  { id: 'dark', label: '🌑 Dark', desc: 'Elegant dark theme' },
+  { id: 'light', label: '☀️ Light', desc: 'Clean and minimal' },
+  { id: 'gradient', label: '🌈 Gradient', desc: 'Vivid gradient accents' },
+];
 
-export default function PortfolioView({ milestones }: PortfolioViewProps) {
-  const [theme, setTheme] = useState<'slate' | 'cosmic' | 'emerald'>('slate');
-  const [biography, setBiography] = useState<string>("Hello, I am Elena Rostova. I specialize in cloud infrastructure engineering, machine learning pipelines, and technical research.");
-  const [showCerts, setShowCerts] = useState<boolean>(true);
-  const [showLeadership, setShowLeadership] = useState<boolean>(true);
-  const [showExperience, setShowExperience] = useState<boolean>(true);
-  const [isPublishing, setIsPublishing] = useState<boolean>(false);
-  const [publicUrl, setPublicUrl] = useState<string | null>(null);
+export default function PortfolioView() {
+  const [settings, setSettings] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
 
-  const handlePublish = () => {
-    setIsPublishing(true);
-    setPublicUrl(null);
+  const [username, setUsername] = useState('');
+  const [theme, setTheme] = useState('dark');
+  const [visibleCats, setVisibleCats] = useState<string[]>(CATEGORIES);
 
-    setTimeout(() => {
-      setIsPublishing(false);
-      setPublicUrl(`https://identityvault.pub/elena-rostova-${theme}`);
-    }, 1800);
+  useEffect(() => { fetchSettings(); }, []);
+
+  const fetchSettings = async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient.getPortfolioSettings();
+      setSettings(data);
+      setUsername(data.username || '');
+      setTheme(data.theme || 'dark');
+      setVisibleCats(data.visible_categories?.length ? data.visible_categories : CATEGORIES);
+      if (data.is_published && data.username) {
+        setPublishedUrl(`${window.location.origin}/p/${data.username}`);
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to load settings');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getThemeClasses = () => {
-    if (theme === 'cosmic') return 'bg-slate-950 text-slate-100 border-slate-800';
-    if (theme === 'emerald') return 'bg-emerald-950/95 text-slate-100 border-emerald-900';
-    return 'bg-slate-900 text-slate-100 border-slate-800'; // Minimal Slate
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await apiClient.updatePortfolioSettings({ username, theme, visible_categories: visibleCats });
+      setSuccess('Portfolio settings saved!');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e: any) {
+      setError(e.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const handlePublish = async () => {
+    if (!username) { setError('Set a username before publishing.'); return; }
+    setPublishing(true);
+    setError(null);
+    try {
+      const res = await apiClient.publishPortfolio();
+      setPublishedUrl(res.url);
+      setSuccess(`🎉 Portfolio published at ${res.url}`);
+    } catch (e: any) {
+      setError(e.message || 'Publish failed');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const toggleCat = (cat: string) => {
+    setVisibleCats((prev) =>
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6 kx-fade-in">
+        <div className="kx-skeleton" style={{ height: 200, borderRadius: 'var(--kx-radius-xl)' }} />
+        <div className="kx-grid kx-grid-2">
+          <div className="kx-skeleton" style={{ height: 160, borderRadius: 'var(--kx-radius-lg)' }} />
+          <div className="kx-skeleton" style={{ height: 160, borderRadius: 'var(--kx-radius-lg)' }} />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div id="portfolio-view-root" className="space-y-6 select-none font-sans pb-12 text-left">
-      
-      {/* Banner */}
-      <div className="bg-white p-5 rounded-3xl border border-slate-200/80 card-shadow flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <h3 className="font-semibold text-sm text-slate-800 font-display flex items-center gap-2">
-            <Briefcase className="w-5 h-5 text-brand-steel" />
-            Public Showcase Compiler
-          </h3>
-          <p className="text-xs text-slate-500 max-w-xl leading-normal font-medium">
-            Publish your cryptographically secured safe documents and verified timeline milestones into a high-end personal resume webpage with one click.
+    <div className="space-y-6">
+      {/* Published banner */}
+      {settings?.is_published && publishedUrl && (
+        <div className="kx-alert kx-alert-success kx-fade-in">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+          Portfolio is live!{' '}
+          <a href={publishedUrl} target="_blank" rel="noopener noreferrer"
+            style={{ color: 'inherit', fontWeight: 600, marginLeft: '0.25rem' }}>
+            {publishedUrl} →
+          </a>
+        </div>
+      )}
+
+      {error && (
+        <div className="kx-alert kx-alert-error kx-fade-in">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="kx-alert kx-alert-success kx-fade-in">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          {success}
+        </div>
+      )}
+
+      {/* Portfolio preview hero */}
+      <div className="portfolio-preview kx-fade-in">
+        <div className="portfolio-hero">
+          <div
+            style={{
+              width: 72,
+              height: 72,
+              background: 'var(--kx-gradient)',
+              borderRadius: 'var(--kx-radius-xl)',
+              margin: '0 auto 1rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '2rem',
+              boxShadow: '0 4px 20px rgba(99,102,241,0.4)',
+            }}
+          >
+            💼
+          </div>
+          <h2 style={{ color: 'var(--kx-text-bright)' }}>
+            {username ? `@${username}` : 'Your Portfolio'}
+          </h2>
+          <p style={{ color: 'var(--kx-text-muted)', fontSize: '0.9375rem', marginTop: '0.5rem' }}>
+            {settings?.is_published ? 'Published & live' : 'Draft — not yet published'}
           </p>
         </div>
+      </div>
 
+      {/* Settings */}
+      <div className="kx-grid kx-grid-2">
+        {/* Username & theme */}
+        <div className="kx-card kx-fade-in kx-fade-in-delay-1">
+          <div className="kx-card-header">
+            <span className="kx-card-title">Portfolio Settings</span>
+          </div>
+          <div className="kx-card-body space-y-4">
+            <div>
+              <label className="kx-label" htmlFor="portfolio-username">
+                Username
+              </label>
+              <div style={{ position: 'relative' }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    left: '0.875rem',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: 'var(--kx-text-muted)',
+                    fontSize: '0.875rem',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  @
+                </span>
+                <input
+                  id="portfolio-username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value.replace(/[^a-z0-9_-]/g, ''))}
+                  placeholder="janedoe"
+                  className="kx-input"
+                  style={{ paddingLeft: '2rem' }}
+                />
+              </div>
+              <p style={{ fontSize: '0.75rem', color: 'var(--kx-text-muted)', marginTop: '0.25rem' }}>
+                Only lowercase letters, numbers, _ and - allowed.
+              </p>
+            </div>
+
+            <div>
+              <label className="kx-label">Theme</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {THEMES.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTheme(t.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      padding: '0.625rem 0.875rem',
+                      borderRadius: 'var(--kx-radius-md)',
+                      border: `1px solid ${theme === t.id ? 'rgba(99,102,241,0.5)' : 'var(--kx-border)'}`,
+                      background: theme === t.id ? 'rgba(99,102,241,0.08)' : 'var(--kx-glass)',
+                      cursor: 'pointer',
+                      color: theme === t.id ? 'var(--kx-text-bright)' : 'var(--kx-text-secondary)',
+                      textAlign: 'left',
+                      transition: 'var(--kx-transition)',
+                    }}
+                  >
+                    <span style={{ fontSize: '1.125rem' }}>{t.label.split(' ')[0]}</span>
+                    <div>
+                      <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{t.label.split(' ').slice(1).join(' ')}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--kx-text-muted)' }}>{t.desc}</div>
+                    </div>
+                    {theme === t.id && (
+                      <span style={{ marginLeft: 'auto', color: 'var(--kx-indigo)' }}>✓</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Visible categories */}
+        <div className="kx-card kx-fade-in kx-fade-in-delay-2">
+          <div className="kx-card-header">
+            <span className="kx-card-title">Visible Categories</span>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--kx-text-muted)' }}>
+              {visibleCats.length}/{CATEGORIES.length}
+            </span>
+          </div>
+          <div className="kx-card-body">
+            <p style={{ fontSize: '0.875rem', color: 'var(--kx-text-secondary)', marginBottom: '1rem' }}>
+              Choose which document types appear on your public portfolio.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {CATEGORIES.map((cat) => {
+                const selected = visibleCats.includes(cat);
+                return (
+                  <button
+                    key={cat}
+                    id={`portfolio-cat-${cat.toLowerCase()}`}
+                    onClick={() => toggleCat(cat)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      padding: '0.625rem 0.875rem',
+                      borderRadius: 'var(--kx-radius-md)',
+                      border: `1px solid ${selected ? 'rgba(99,102,241,0.3)' : 'var(--kx-border)'}`,
+                      background: selected ? 'rgba(99,102,241,0.06)' : 'var(--kx-glass)',
+                      cursor: 'pointer',
+                      color: 'var(--kx-text)',
+                      fontFamily: 'var(--kx-font)',
+                      fontSize: '0.875rem',
+                      fontWeight: 500,
+                      transition: 'var(--kx-transition)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: '4px',
+                        border: `2px solid ${selected ? 'var(--kx-indigo)' : 'var(--kx-border)'}`,
+                        background: selected ? 'var(--kx-indigo)' : 'transparent',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        transition: 'var(--kx-transition)',
+                      }}
+                    >
+                      {selected && (
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                          <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                      )}
+                    </div>
+                    {cat}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div
+        className="kx-fade-in"
+        style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}
+      >
         <button
-          id="btn-trigger-publish-portfolio"
-          onClick={handlePublish}
-          disabled={isPublishing}
-          className="px-5 py-2.5 bg-brand-steel hover:bg-brand-blue disabled:bg-slate-200 text-white disabled:text-slate-400 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-md transition-all cursor-pointer active:scale-95 shrink-0"
+          id="portfolio-save-btn"
+          onClick={handleSave}
+          disabled={saving}
+          className="kx-btn kx-btn-ghost"
+          style={{ minWidth: 140 }}
         >
-          {isPublishing ? (
-            <RefreshCw className="w-4 h-4 animate-spin" />
-          ) : (
-            <Share2 className="w-4 h-4" />
-          )}
-          <span>Publish Web Showcase</span>
+          {saving ? (
+            <><span className="kx-spinner" style={{ width: 16, height: 16, marginBottom: 0 }} /> Saving…</>
+          ) : '💾 Save Settings'}
+        </button>
+        <button
+          id="portfolio-publish-btn"
+          onClick={handlePublish}
+          disabled={publishing || !username}
+          className="kx-btn kx-btn-primary"
+          style={{ minWidth: 160 }}
+        >
+          {publishing ? (
+            <><span className="kx-spinner" style={{ width: 16, height: 16, marginBottom: 0 }} /> Publishing…</>
+          ) : settings?.is_published ? '🔄 Republish' : '🚀 Publish Portfolio'}
         </button>
       </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-        
-        {/* Left Control Panel (Col-span 2) */}
-        <div className="xl:col-span-2 space-y-4">
-          <div className="bg-white rounded-3xl p-5 border border-slate-200/80 card-shadow space-y-4">
-            <h4 className="font-bold text-[10px] font-mono text-slate-400 uppercase tracking-wider">1. COMPILER SETTINGS</h4>
-            
-            {/* Template Selector */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-700 block">Showcase Aesthetics Theme</label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  id="theme-slate-btn"
-                  onClick={() => setTheme('slate')}
-                  className={`px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    theme === 'slate' 
-                      ? 'bg-slate-900 text-white shadow-sm' 
-                      : 'bg-slate-50 hover:bg-slate-100 border border-slate-200/60 text-slate-600'
-                  }`}
-                >
-                  Minimal Slate
-                </button>
-                <button
-                  id="theme-cosmic-btn"
-                  onClick={() => setTheme('cosmic')}
-                  className={`px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    theme === 'cosmic' 
-                      ? 'bg-purple-950 text-white shadow-sm border border-purple-900' 
-                      : 'bg-slate-50 hover:bg-slate-100 border border-slate-200/60 text-slate-600'
-                  }`}
-                >
-                  Cosmic Midnight
-                </button>
-                <button
-                  id="theme-emerald-btn"
-                  onClick={() => setTheme('emerald')}
-                  className={`px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    theme === 'emerald' 
-                      ? 'bg-emerald-950 text-white shadow-sm border border-emerald-900' 
-                      : 'bg-slate-50 hover:bg-slate-100 border border-slate-200/60 text-slate-600'
-                  }`}
-                >
-                  Aesthetic Emerald
-                </button>
-              </div>
-            </div>
-
-            {/* Biography text */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-700 block">Personal Narrative (Bio)</label>
-              <textarea
-                id="portfolio-bio-textarea"
-                rows={3}
-                value={biography}
-                onChange={(e) => setBiography(e.target.value)}
-                placeholder="Write a brief introduction about yourself..."
-                className="w-full bg-slate-50 border border-slate-200 focus:border-brand-steel outline-none rounded-xl px-3 py-2 text-xs font-medium resize-none leading-relaxed"
-              />
-            </div>
-
-            {/* Visibility checkboxes */}
-            <div className="space-y-2.5">
-              <label className="text-xs font-semibold text-slate-700 block">Visible Artifact Channels</label>
-              
-              <div className="space-y-2 font-medium text-xs text-slate-700">
-                <label className="flex items-center gap-2.5 bg-slate-50/50 hover:bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 cursor-pointer">
-                  <input
-                    id="checkbox-certs"
-                    type="checkbox"
-                    checked={showCerts}
-                    onChange={(e) => setShowCerts(e.target.checked)}
-                    className="rounded border-slate-300 text-brand-steel focus:ring-brand-steel w-4 h-4 cursor-pointer"
-                  />
-                  <span>Verified Credentials & Certifications</span>
-                </label>
-
-                <label className="flex items-center gap-2.5 bg-slate-50/50 hover:bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 cursor-pointer">
-                  <input
-                    id="checkbox-leadership"
-                    type="checkbox"
-                    checked={showLeadership}
-                    onChange={(e) => setShowLeadership(e.target.checked)}
-                    className="rounded border-slate-300 text-brand-steel focus:ring-brand-steel w-4 h-4 cursor-pointer"
-                  />
-                  <span>Leadership & Mentorship Records</span>
-                </label>
-
-                <label className="flex items-center gap-2.5 bg-slate-50/50 hover:bg-slate-50 p-2.5 rounded-xl border border-slate-200/60 cursor-pointer">
-                  <input
-                    id="checkbox-experience"
-                    type="checkbox"
-                    checked={showExperience}
-                    onChange={(e) => setShowExperience(e.target.checked)}
-                    className="rounded border-slate-300 text-brand-steel focus:ring-brand-steel w-4 h-4 cursor-pointer"
-                  />
-                  <span>Professional Placements & Experiences</span>
-                </label>
-              </div>
-            </div>
-
-          </div>
-
-          {/* Publisher logs or link drawer */}
-          <AnimatePresence>
-            {publicUrl && (
-              <motion.div
-                key="pub-link"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="p-4 bg-emerald-50 border border-emerald-200 rounded-3xl flex items-start gap-3 text-left"
-              >
-                <div className="p-2 bg-emerald-100 text-emerald-600 rounded-xl shrink-0">
-                  <CheckCircle className="w-5 h-5" />
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600">PUBLISHED SUCCESSFUL</span>
-                  <p className="text-xs font-semibold text-slate-800">Your Web Showcase is Live!</p>
-                  <a
-                    id="published-showcase-anchor"
-                    href={publicUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs font-bold text-brand-steel hover:underline flex items-center gap-1 mt-1 break-all"
-                  >
-                    <span>{publicUrl}</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-        </div>
-
-        {/* Right Side: Showcase Live Frame Preview (Col-span 3) */}
-        <div className="xl:col-span-3">
-          <div className="bg-slate-100 rounded-3xl p-4 border border-slate-200/80 h-full flex flex-col justify-between min-h-[460px]">
-            
-            {/* Frame browser heading bar */}
-            <div className="flex justify-between items-center bg-white border border-slate-200 rounded-2xl px-4 py-2.5 shadow-sm shrink-0 mb-4">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-400" />
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                <span className="text-[10px] font-mono text-slate-400 ml-3 uppercase tracking-wider font-semibold">PREVIEW MODE</span>
-              </div>
-              <Laptop className="w-4 h-4 text-slate-400" />
-            </div>
-
-            {/* Simulated Published Site Frame */}
-            <div className={`flex-1 rounded-2xl p-6 border overflow-y-auto max-h-[380px] scrollbar-thin transition-all duration-300 ${getThemeClasses()}`}>
-              
-              {/* Cover Banner with preset graphics */}
-              <div className="h-28 rounded-xl overflow-hidden relative mb-6">
-                <img 
-                  src={PORTFOLIO_PROJECT_IMAGE} 
-                  alt="Portfolio Cover Banner" 
-                  className="w-full h-full object-cover brightness-75"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
-                <div className="absolute bottom-3 left-4 flex items-center gap-2.5">
-                  <img 
-                    src={PORTFOLIO_AVATAR} 
-                    alt="Elena Portrait Mini" 
-                    className="w-10 h-10 rounded-full object-cover border-2 border-white/60 shadow"
-                    referrerPolicy="no-referrer"
-                  />
-                  <div>
-                    <h4 className="font-bold text-xs text-white">Elena Rostova</h4>
-                    <p className="text-[9px] font-mono text-slate-300">Verified System Architect</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Biography Section */}
-              <div className="space-y-1.5 mb-6 text-left">
-                <h5 className="font-bold text-[10px] font-mono text-slate-400 uppercase tracking-wider">Biography</h5>
-                <p className="text-xs text-slate-300 leading-relaxed italic">
-                  "{biography || 'Please write a biography parameter to showcase here...'}"
-                </p>
-              </div>
-
-              {/* Dynamic list of visible milestones inside compiled frame */}
-              <div className="space-y-4 text-left">
-                <h5 className="font-bold text-[10px] font-mono text-slate-400 uppercase tracking-wider">Verified Milestones</h5>
-                
-                <div className="space-y-3.5">
-                  {milestones.map((ms) => {
-                    const hide = 
-                      (ms.category === 'Certification' && !showCerts) ||
-                      (ms.category === 'Leadership' && !showLeadership) ||
-                      (ms.category === 'Experience' && !showExperience);
-                    if (hide) return null;
-
-                    return (
-                      <div 
-                        key={ms.id} 
-                        id={`prev-milestone-row-${ms.id}`}
-                        className="p-3.5 bg-white/5 border border-white/10 rounded-xl flex items-center gap-3.5"
-                      >
-                        <div className="w-9 h-9 rounded-lg bg-white/10 border border-white/10 p-0.5 flex items-center justify-center shrink-0">
-                          <img 
-                            src={ms.badgeUrl} 
-                            alt="Milestone Seal" 
-                            className="w-full h-full object-contain"
-                            referrerPolicy="no-referrer"
-                          />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[8px] font-mono font-bold uppercase tracking-widest text-brand-steel">
-                              {ms.category}
-                            </span>
-                            <span className="text-[8px] text-slate-400 font-mono">
-                              {ms.date}
-                            </span>
-                          </div>
-                          <h6 className="font-bold text-xs text-white tracking-tight mt-0.5">{ms.title}</h6>
-                          <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">{ms.description}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-            </div>
-
-            <div className="pt-3 border-t border-slate-200 mt-4 flex items-center gap-2 text-[10px] text-slate-400 leading-normal font-medium">
-              <Info className="w-4 h-4 text-slate-400 shrink-0" />
-              <span>Preview mode demonstrates exactly what external recruiters see when parsing your verified address link.</span>
-            </div>
-
-          </div>
-        </div>
-
-      </div>
-
     </div>
   );
 }

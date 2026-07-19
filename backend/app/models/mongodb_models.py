@@ -46,9 +46,18 @@ class ActionType(str, Enum):
     SEARCH = "search"
     EXPORT = "export"
 
+class IntegrationProvider(str, Enum):
+    GOOGLE_DRIVE = "google_drive"
+    NOTION = "notion"
+
+class IntegrationStatus(str, Enum):
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+    ERROR = "error"
+
 class User(BeanieDocument):
     """User model for MongoDB"""
-    full_name: str = Field(..., min_length=2, max_length=100)
+    full_name: Optional[str] = Field(None, min_length=2, max_length=100)
     email: Indexed(EmailStr, unique=True)  # Unique indexed email
     password_hash: Optional[str] = None  # null if OAuth-only
     auth_provider: AuthProvider = AuthProvider.LOCAL
@@ -57,6 +66,7 @@ class User(BeanieDocument):
     avatar_url: Optional[str] = None  # R2/Cloudflare Images URL
     role: UserRole = UserRole.STUDENT
     email_verified: bool = False
+    is_active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     last_login_at: Optional[datetime] = None
@@ -80,15 +90,29 @@ class ExtractedFields(BaseModel):
     organization: Optional[str] = None
     skills_detected: List[str] = Field(default_factory=list)
 
+class ExternalLinkDetails(BaseModel):
+    file_id: Optional[str] = None
+    web_view_link: Optional[str] = None
+    page_id: Optional[str] = None
+    url: Optional[str] = None
+    pushed_at: Optional[datetime] = None
+    status: str = "skipped"  # "pushed" | "failed" | "skipped"
+
+class ExternalLinks(BaseModel):
+    google_drive: Optional[ExternalLinkDetails] = None
+    notion: Optional[ExternalLinkDetails] = None
+
 class Document(BeanieDocument):
     """Document model for MongoDB"""
     user_id: Indexed(str)  # Foreign key reference to User.id (string ObjectId)
     filename: str  # original filename
+    original_filename: Optional[str] = None
     file_type: str  # "pdf" | "docx" | "jpg" | "png"
     file_size_bytes: Optional[int] = None
     storage_key: Optional[str] = None  # Cloudflare R2 object key (NOT the file itself)
     storage_url: Optional[str] = None  # signed/public URL, generated on read
     status: DocumentStatus = DocumentStatus.UPLOADING
+    failure_reason: Optional[str] = None  # Human-readable reason when status = failed
     category: Optional[DocumentCategory] = None
     category_confidence: Optional[float] = Field(default=None, ge=0, le=1)  # 0-1
     category_overridden: bool = False
@@ -97,6 +121,7 @@ class Document(BeanieDocument):
     chroma_vector_id: Optional[str] = None  # reference to ChromaDB embedding
     ocr_applied: bool = False
     is_deleted: bool = False  # soft delete
+    external_links: Optional[ExternalLinks] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     
@@ -237,14 +262,14 @@ class PortfolioSettings(BeanieDocument):
             "user_id",
         ]
 
-class Session(Document):
+class Session(BeanieDocument):
     """Session model for MongoDB (refresh tokens)"""
     user_id: Indexed(str)  # Foreign key reference to User.id (string ObjectId)
     refresh_token_hash: str
     device_info: Optional[str] = None
     expires_at: datetime
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    
+
     class Settings:
         name = "sessions"
         indexes = [
@@ -253,3 +278,39 @@ class Session(Document):
         ]
         # TTL index for auto-expiring sessions
         # Note: Beanie doesn't support TTL indexes directly, need to create manually in MongoDB
+
+class CategoryFolderIds(BaseModel):
+    Projects: Optional[str] = None
+    Skills: Optional[str] = None
+    Certifications: Optional[str] = None
+    Internships: Optional[str] = None
+    Achievements: Optional[str] = None
+    Academics: Optional[str] = None
+
+class Integration(BeanieDocument):
+    user_id: Indexed(str)
+    provider: IntegrationProvider
+    status: IntegrationStatus = IntegrationStatus.DISCONNECTED
+    access_token_encrypted: Optional[str] = None
+    refresh_token_encrypted: Optional[str] = None
+    token_expires_at: Optional[datetime] = None
+    
+    # Google Drive specific
+    root_folder_id: Optional[str] = None
+    category_folder_ids: Optional[CategoryFolderIds] = None
+    
+    # Notion specific
+    database_id: Optional[str] = None
+    workspace_name: Optional[str] = None
+    
+    last_synced_at: Optional[datetime] = None
+    last_error: Optional[str] = None
+    connected_at: Optional[datetime] = None
+    disconnected_at: Optional[datetime] = None
+    
+    class Settings:
+        name = "integrations"
+        indexes = [
+            [("user_id", 1), ("provider", 1)],
+            "user_id",
+        ]

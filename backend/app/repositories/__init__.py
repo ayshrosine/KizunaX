@@ -5,6 +5,7 @@ from .relationship_repository import relationship_repository
 from .notification_repository import notification_repository
 from .activity_log_repository import activity_log_repository
 from .timeline_event_repository import timeline_event_repository
+from .integration_repository import integration_repository
 
 __all__ = [
     "user_repository",
@@ -14,4 +15,5 @@ __all__ = [
     "notification_repository",
     "activity_log_repository",
     "timeline_event_repository",
+    "integration_repository",
 ]

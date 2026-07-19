@@ -17,10 +17,11 @@ class TimelineService:
         timeline_events = []
         
         for doc in documents:
-            # Extract year from document date or upload date
-            if doc.document_date:
-                year = doc.document_date.year
-                month = doc.document_date.month
+            # Extract year from extracted issue_date or upload date
+            issue_date = doc.extracted_fields.issue_date if doc.extracted_fields and doc.extracted_fields.issue_date else None
+            if issue_date:
+                year = issue_date.year
+                month = issue_date.month
             else:
                 year = doc.created_at.year
                 month = doc.created_at.month

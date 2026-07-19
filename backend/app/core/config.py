@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     
     # Database Paths
     CHROMA_DB_PATH: str = "./data/chroma_db"
-    SQLITE_DB_PATH: str = "./data/metadata.db"
     
     # MongoDB Configuration
     MONGODB_URI: str = ""
@@ -46,6 +45,16 @@ class Settings(BaseSettings):
     R2_SECRET_KEY: str = ""
     R2_BUCKET: str = ""
     R2_ENDPOINT: str = ""
+    
+    # Google Drive OAuth Settings
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/integrations/google/callback"
+    
+    # Notion OAuth Settings
+    NOTION_CLIENT_ID: str = ""
+    NOTION_CLIENT_SECRET: str = ""
+    NOTION_REDIRECT_URI: str = "http://localhost:8000/api/integrations/notion/callback"
     
     # CORS
     CORS_ORIGINS: Union[str, List[str]] = "http://localhost:3000"

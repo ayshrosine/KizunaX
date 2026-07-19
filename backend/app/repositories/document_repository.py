@@ -77,14 +77,14 @@ class DocumentRepository:
     
     async def count_by_user(self, user_id: str) -> int:
         """Count documents by user ID"""
-        return await Document.count(
+        return await Document.find(
             Document.user_id == user_id,
             Document.is_deleted == False
-        )
+        ).count()
     
     async def count_by_status(self, status: DocumentStatus) -> int:
         """Count documents by status"""
-        return await Document.count(Document.status == status)
+        return await Document.find(Document.status == status).count()
     
     async def search_text(self, user_id: str, query: str, skip: int = 0, limit: int = 100) -> List[Document]:
         """Text search in filename and extracted_text"""

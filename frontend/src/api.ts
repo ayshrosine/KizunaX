@@ -5,12 +5,12 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
-// Types matching backend response structure
+// Types matching backend MongoDB schema
 export interface User {
-  id: number;
+  id: string;
+  full_name: string;
   email: string;
-  username: string;
-  full_name?: string;
+  auth_provider: string;
   is_active: boolean;
   is_verified: boolean;
   created_at: string;
@@ -23,62 +23,111 @@ export interface AuthResponse {
   user: User;
 }
 
+export interface ExternalLinkDetails {
+  file_id?: string;
+  web_view_link?: string;
+  page_id?: string;
+  url?: string;
+  pushed_at?: string;
+  status: string;
+}
+
+export interface ExternalLinks {
+  google_drive?: ExternalLinkDetails;
+  notion?: ExternalLinkDetails;
+}
+
+export interface IntegrationStatus {
+  provider: string;
+  status: string;
+  workspace_name?: string;
+  last_synced_at?: string;
+  last_error?: string;
+  connected_at?: string;
+}
+
 export interface BackendDocument {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   filename: string;
-  original_filename: string;
-  file_path: string;
-  file_size: number;
+  original_filename?: string;
   file_type: string;
-  category: string;
-  title?: string;
-  content?: string;
-  summary?: string;
-  upload_date: string;
-  document_date?: string;
-  author?: string;
-  organization?: string;
-  embedding_id?: string;
-  categorization_confidence?: number;
-  processing_status: string;
+  file_size_bytes?: number;
+  storage_key?: string;
+  storage_url?: string;
+  status: string;
+  failure_reason?: string;
+  category?: string;
+  category_confidence?: number;
+  category_overridden: boolean;
+  extracted_text?: string;
+  extracted_fields?: {
+    issuer?: string;
+    issue_date?: string;
+    expiry_date?: string;
+    organization?: string;
+    skills_detected?: string[];
+  };
+  chroma_vector_id?: string;
+  ocr_applied: boolean;
+  is_deleted: boolean;
+  external_links?: ExternalLinks;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BackendSkill {
-  id: number;
-  user_id: number;
+  id: string;
+  user_id: string;
   name: string;
-  category: string;
-  confidence: number;
-  source_document_id?: number;
+  normalized_name: string;
+  source_document_ids: string[];
+  confidence_score?: number;
+  on_resume: boolean;
+  has_evidence: boolean;
+  first_detected_at: string;
+  updated_at: string;
+}
+
+export interface BackendRelationship {
+  id: string;
+  user_id: string;
+  source_type: string;
+  source_id: string;
+  target_type: string;
+  target_id: string;
+  relationship_type: string;
+  strength?: number;
+  ai_generated: boolean;
   created_at: string;
 }
 
 export interface BackendTimelineEvent {
-  id: number;
-  user_id: number;
-  document_id?: number;
-  event_type: string;
+  id: string;
+  user_id: string;
+  year: number;
+  month?: number;
   title: string;
+  category: string;
+  document_id?: string;
   description?: string;
-  event_date: string;
-  end_date?: string;
-  skills?: string;
-  importance: number;
   created_at: string;
 }
 
 // Convert backend document to frontend document type
 export function convertBackendToFrontendDoc(backendDoc: BackendDocument) {
   return {
-    id: backendDoc.id.toString(),
-    title: backendDoc.title || backendDoc.original_filename,
-    date: new Date(backendDoc.upload_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+    ...backendDoc,
+    id: backendDoc.id,
+    title: backendDoc.filename,
+    date: new Date(backendDoc.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
     category: backendDoc.category || 'General',
-    size: formatFileSize(backendDoc.file_size),
+    size: formatFileSize(backendDoc.file_size_bytes || 0),
     iconType: getIconType(backendDoc.file_type, backendDoc.category),
     bgImageUrl: getPlaceholderImage(backendDoc.category),
-    altText: backendDoc.summary || backendDoc.content?.substring(0, 100) || 'No description available'
+    altText: backendDoc.extracted_text?.substring(0, 100) || 'No description available',
+    status: backendDoc.status,
+    confidence: backendDoc.category_confidence
   };
 }
 
@@ -90,7 +139,7 @@ function formatFileSize(bytes: number): string {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 }
 
-function getIconType(fileType: string, category: string): 'paper' | 'cert' | 'draw' | 'receipt' | 'home' | 'medical' | 'flight' | 'security' | 'table' | 'image' {
+function getIconType(fileType: string, category?: string): 'paper' | 'cert' | 'draw' | 'receipt' | 'home' | 'medical' | 'flight' | 'security' | 'table' | 'image' {
   const ext = fileType.toLowerCase();
   if (ext.includes('pdf')) return 'paper';
   if (ext.includes('image') || ext.includes('png') || ext.includes('jpg')) return 'image';
@@ -101,17 +150,24 @@ function getIconType(fileType: string, category: string): 'paper' | 'cert' | 'dr
   return 'paper';
 }
 
-function getPlaceholderImage(category: string): string {
+function getPlaceholderImage(category?: string): string {
   const categoryColors: Record<string, string> = {
-    'Projects': '#34618e',
-    'Certifications': '#059669',
-    'Internships': '#0891b2',
-    'Academics': '#7c3aed',
-    'Achievements': '#d97706',
+    'Projects': '#2F5D8A',
+    'Skills': '#2E8B57',
+    'Certifications': '#B5652A',
+    'Internships': '#8A4FA0',
+    'Achievements': '#2E8B8B',
+    'Academics': '#6B7280',
     'General': '#64748b'
   };
-  const color = categoryColors[category] || '#64748b';
-  return `https://via.placeholder.com/400x300/${color.replace('#', '')}/ffffff?text=${category}`;
+  const color = categoryColors[category || 'General'] || '#64748b';
+  return `https://via.placeholder.com/400x300/${color.replace('#', '')}/ffffff?text=${category || 'General'}`;
+}
+
+function mapStatus(status: string): string {
+  if (status === 'indexed') return 'processed';
+  if (status === 'failed') return 'failed';
+  return 'processing';
 }
 
 // API Client Class
@@ -171,60 +227,146 @@ class ApiClient {
     });
   }
 
-  async register(email: string, username: string, password: string, full_name?: string): Promise<User> {
-    return this.request<User>('/auth/register', {
+  async register(email: string, password: string, full_name?: string): Promise<AuthResponse> {
+    return this.request<AuthResponse>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, username, password, full_name }),
+      body: JSON.stringify({ email, password, full_name }),
     });
   }
 
   // Documents
   async getDocuments(limit: number = 100): Promise<BackendDocument[]> {
-    return this.request<BackendDocument[]>(`/documents?limit=${limit}`);
+    const res = await this.request<{ documents: BackendDocument[]; total: number; page: number; limit: number }>(`/documents?limit=${limit}`);
+    return (res.documents || []).map(d => ({ ...d, status: mapStatus(d.status) }));
   }
 
-  async uploadDocument(file: File): Promise<BackendDocument> {
+  async uploadDocument(file: File): Promise<{ id: string; filename: string; status: string; storage_url: string | null; message: string }> {
     const formData = new FormData();
     formData.append('file', file);
 
-    return this.request<BackendDocument>('/upload', {
+    const url = `${API_BASE_URL}/upload`;
+    const headers: HeadersInit = {};
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(url, {
       method: 'POST',
+      headers,
       body: formData,
-      headers: {}, // Let browser set Content-Type for FormData
     });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(error.detail || 'Upload failed');
+    }
+
+    return response.json();
   }
 
-  async updateDocument(id: number, data: Partial<BackendDocument>): Promise<BackendDocument> {
-    return this.request<BackendDocument>(`/documents/${id}`, {
+  async getDocumentStatus(documentId: string): Promise<{ id: string; status: string; category: string | null; created_at: string }> {
+    const res = await this.request<{ id: string; status: string; category: string | null; created_at: string }>(`/upload/${documentId}/status`);
+    return res;
+  }
+
+  async updateDocument(id: string, data: Partial<BackendDocument>): Promise<BackendDocument> {
+    const doc = await this.request<BackendDocument>(`/documents/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+    return { ...doc, status: mapStatus(doc.status) };
   }
 
-  async deleteDocument(id: number): Promise<void> {
+  async deleteDocument(id: string): Promise<void> {
     return this.request<void>(`/documents/${id}`, {
       method: 'DELETE',
     });
   }
 
   // Search
-  async searchDocuments(query: string, limit: number = 10): Promise<BackendDocument[]> {
-    return this.request<BackendDocument[]>(`/search/documents?query=${encodeURIComponent(query)}&limit=${limit}`);
+  async searchDocuments(query: string, limit: number = 10): Promise<{ query: string; total_results: number; results: BackendDocument[] }> {
+    const res = await this.request<{ query: string; total_results: number; results: BackendDocument[] }>('/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, limit }),
+    });
+    if (res.results) {
+      res.results = res.results.map(d => ({ ...d, status: mapStatus(d.status) }));
+    }
+    return res;
   }
 
-  async searchSkills(query: string): Promise<BackendSkill[]> {
-    return this.request<BackendSkill[]>(`/search/skills?query=${encodeURIComponent(query)}`);
+  async getSkills(): Promise<BackendSkill[]> {
+    return this.request<BackendSkill[]>('/search/skills');
   }
 
   // Timeline
-  async getTimelineEvents(): Promise<BackendTimelineEvent[]> {
-    return this.request<BackendTimelineEvent[]>('/timeline/');
+  async getTimeline(): Promise<{ events: any[]; grouped: any; total_events: number }> {
+    return this.request<{ events: any[]; grouped: any; total_events: number }>('/timeline');
   }
 
-  async createTimelineEvent(event: Partial<BackendTimelineEvent>): Promise<BackendTimelineEvent> {
-    return this.request<BackendTimelineEvent>('/timeline/', {
+  // Graph
+  async getGraph(): Promise<{ nodes: any[]; edges: any[]; total_nodes: number; total_edges: number }> {
+    return this.request<{ nodes: any[]; edges: any[]; total_nodes: number; total_edges: number }>('/graph');
+  }
+
+  // Insights
+  async getSkillsInsights(): Promise<{ skills: any[]; total: number; with_evidence: number }> {
+    return this.request<{ skills: any[]; total: number; with_evidence: number }>('/insights/skills');
+  }
+
+  async getSkillGaps(): Promise<{ missing_categories: string[]; missing_skills: string[]; categories_present: string[] }> {
+    return this.request<{ missing_categories: string[]; missing_skills: string[]; categories_present: string[] }>('/insights/gaps');
+  }
+
+  async getCareerPaths(): Promise<{ paths: any[] }> {
+    return this.request<{ paths: any[] }>('/insights/career-paths');
+  }
+
+  // Portfolio
+  async getPortfolioSettings(): Promise<{ username: string | null; theme: string | null; visible_categories: string[]; is_published: boolean; published_at: string | null }> {
+    return this.request<{ username: string | null; theme: string | null; visible_categories: string[]; is_published: boolean; published_at: string | null }>('/portfolio/settings');
+  }
+
+  async updatePortfolioSettings(data: { username?: string; theme?: string; visible_categories?: string[]; is_published?: boolean }): Promise<{ username: string | null; theme: string | null; visible_categories: string[]; is_published: boolean; published_at: string | null }> {
+    return this.request<{ username: string | null; theme: string | null; visible_categories: string[]; is_published: boolean; published_at: string | null }>('/portfolio/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async publishPortfolio(): Promise<{ message: string; username: string; url: string }> {
+    return this.request<{ message: string; username: string; url: string }>('/portfolio/publish', {
       method: 'POST',
-      body: JSON.stringify(event),
+    });
+  }
+
+  async getPublicPortfolio(username: string): Promise<{ username: string; theme: string; documents: any[]; skills: string[]; timeline: any[] }> {
+    return this.request<{ username: string; theme: string; documents: any[]; skills: string[]; timeline: any[] }>(`/portfolio/u/${username}`);
+  }
+
+  // Integrations
+  async getIntegrationStatuses(): Promise<IntegrationStatus[]> {
+    return this.request<IntegrationStatus[]>('/integrations/status');
+  }
+
+  async getGoogleAuthUrl(): Promise<{ authUrl: string }> {
+    return this.request<{ authUrl: string }>('/integrations/google/auth-url');
+  }
+
+  async getNotionAuthUrl(): Promise<{ authUrl: string }> {
+    return this.request<{ authUrl: string }>('/integrations/notion/auth-url');
+  }
+
+  async disconnectIntegration(provider: string): Promise<{ status: string; message: string }> {
+    return this.request<{ status: string; message: string }>(`/integrations/${provider}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async resyncIntegration(provider: string): Promise<{ status: string; message: string }> {
+    return this.request<{ status: string; message: string }>(`/integrations/${provider}/resync`, {
+      method: 'POST',
     });
   }
 }

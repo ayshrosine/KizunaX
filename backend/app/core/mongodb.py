@@ -6,7 +6,8 @@ import asyncio
 from app.core.config import settings
 from app.models.mongodb_models import (
     User, Document, Skill, Relationship, TimelineEvent, 
-    Notification, ActivityLog, PortfolioSettings, Session
+    Notification, ActivityLog, PortfolioSettings, Session,
+    Integration
 )
 
 # Global MongoDB client
@@ -26,24 +27,25 @@ async def init_mongodb():
         
         # Test connection
         await client.admin.command('ping')
-        print(f"✓ MongoDB connected successfully to {settings.MONGODB_DATABASE_NAME}")
+        print(f"[OK] MongoDB connected successfully to {settings.MONGODB_DATABASE_NAME}")
         
         # Initialize Beanie with all models
         await init_beanie(
             database=client[settings.MONGODB_DATABASE_NAME],
             document_models=[
                 User, Document, Skill, Relationship, TimelineEvent, 
-                Notification, ActivityLog, PortfolioSettings, Session
+                Notification, ActivityLog, PortfolioSettings, Session,
+                Integration
             ]
         )
         
-        print(f"✓ Beanie ODM initialized with models")
+        print(f"[OK] Beanie ODM initialized with models")
         
         # Create indexes
         await create_indexes()
         
     except Exception as e:
-        print(f"✗ MongoDB connection failed: {e}")
+        print(f"[ERROR] MongoDB connection failed: {e}")
         raise
 
 async def create_indexes():
@@ -51,10 +53,10 @@ async def create_indexes():
     try:
         # User indexes - using Beanie's indexed field decorator in model
         # Indexes are automatically created by Beanie based on model definitions
-        print("✓ MongoDB indexes will be created automatically by Beanie")
+        print("[OK] MongoDB indexes will be created automatically by Beanie")
         
     except Exception as e:
-        print(f"✗ Index creation failed: {e}")
+        print(f"[ERROR] Index creation failed: {e}")
 
 async def close_mongodb():
     """Close MongoDB connection"""

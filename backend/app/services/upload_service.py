@@ -24,9 +24,6 @@ class UploadService:
         if not r2_storage:
             raise ValueError("R2 storage not available")
         
-        # Generate unique filename
-        unique_filename = f"{uuid.uuid4()}_{filename}"
-        
         # Upload to R2 storage
         file_like_object = io.BytesIO(file_content)
         r2_result = await r2_storage.upload_file(

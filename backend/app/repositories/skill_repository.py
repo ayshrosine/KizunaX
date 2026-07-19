@@ -84,14 +84,14 @@ class SkillRepository:
     
     async def count_by_user(self, user_id: str) -> int:
         """Count skills by user ID"""
-        return await Skill.count(Skill.user_id == user_id)
+        return await Skill.find(Skill.user_id == user_id).count()
     
     async def count_with_evidence(self, user_id: str) -> int:
         """Count skills with evidence by user ID"""
-        return await Skill.count(
+        return await Skill.find(
             Skill.user_id == user_id,
             Skill.has_evidence == True
-        )
+        ).count()
     
     async def upsert_by_name(self, user_id: str, name: str, document_id: str, confidence: float = None) -> Skill:
         """Upsert skill by name - create if doesn't exist, update if does"""

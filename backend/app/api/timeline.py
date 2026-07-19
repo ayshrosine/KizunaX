@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from app.core.security import get_current_active_user, User
+from app.services.timeline import generate_timeline
 from app.services.timeline_service import timeline_service
 from app.repositories.relationship_repository import relationship_repository
 
@@ -22,7 +23,7 @@ async def get_timeline(
 ):
     """Get digital journey timeline for current user"""
     try:
-        return await timeline_service.generate_timeline(str(current_user.id))
+        return await generate_timeline(str(current_user.id))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate timeline: {str(e)}")
 

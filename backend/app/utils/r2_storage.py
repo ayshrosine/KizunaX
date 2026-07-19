@@ -20,7 +20,7 @@ class R2Storage:
         )
         self.bucket_name = settings.R2_BUCKET
     
-    def generate_key(self, user_id: int, original_filename: str) -> str:
+    def generate_key(self, user_id: str, original_filename: str) -> str:
         """Generate a unique storage key for a file"""
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
         unique_id = str(uuid.uuid4())[:8]
@@ -30,7 +30,7 @@ class R2Storage:
     async def upload_file(
         self,
         file_data: BinaryIO,
-        user_id: int,
+        user_id: str,
         original_filename: str,
         content_type: Optional[str] = None
     ) -> dict:

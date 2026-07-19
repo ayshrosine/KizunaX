@@ -49,7 +49,7 @@ export interface ChatMessage {
 export interface GraphNode {
   id: string;
   label: string;
-  category: 'skills' | 'certifications' | 'projects' | 'internships';
+  category: 'skills' | 'certifications' | 'projects' | 'internships' | 'document';
   iconType: 'terminal' | 'analytics' | 'verified' | 'architecture' | 'business_center';
   colorClass: string;
   bgClass: string;

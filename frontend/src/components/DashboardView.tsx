@@ -1,292 +1,406 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useState, useEffect } from 'react';
+import { apiClient, BackendDocument } from '../api';
+import '../styles.css';
 
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import { 
-  ShieldCheck, 
-  Award, 
-  FileText, 
-  LineChart, 
-  Upload, 
-  Search, 
-  Network, 
-  Briefcase,
-  User,
-  ArrowUpRight,
-  Database,
-  Lock,
-  ChevronRight,
-  Activity,
-  Sparkles,
-  Info
-} from 'lucide-react';
-import { Document, RecentUpload, TimelineMilestone } from '../types';
-import { ViewType } from './Sidebar';
-import { USER_AVATAR } from '../data';
-
-interface DashboardViewProps {
-  documents: Document[];
-  recentUploads: RecentUpload[];
-  milestones: TimelineMilestone[];
-  onViewChange: (view: ViewType) => void;
-  onSelectDocument: (doc: Document) => void;
+function StatCard({
+  label,
+  value,
+  color,
+  icon,
+  delay = 0,
+}: {
+  label: string;
+  value: number | string;
+  color: 'indigo' | 'cyan' | 'emerald' | 'amber' | 'rose';
+  icon: React.ReactNode;
+  delay?: number;
+}) {
+  return (
+    <div className={`stat-card ${color} kx-fade-in`} style={{ animationDelay: `${delay}ms` }}>
+      <div className={`stat-icon ${color}`}>{icon}</div>
+      <div className="stat-info">
+        <div className="stat-label">{label}</div>
+        <div className="stat-value">{value}</div>
+      </div>
+    </div>
+  );
 }
 
-export default function DashboardView({ 
-  documents, 
-  recentUploads, 
-  milestones, 
-  onViewChange,
-  onSelectDocument
-}: DashboardViewProps) {
-  const [hoveredAction, setHoveredAction] = useState<string | null>(null);
+const CATEGORY_COLORS: Record<string, string> = {
+  Projects: 'var(--kx-indigo)',
+  Certifications: 'var(--kx-amber)',
+  Internships: 'var(--kx-purple)',
+  Achievements: 'var(--kx-cyan)',
+  Academics: 'var(--kx-emerald)',
+  Skills: 'var(--kx-sky)',
+};
 
-  // Statistics calculation
-  const totalFiles = documents.length;
-  const verifiedMilestonesCount = milestones.length;
-  const storageUsed = (totalFiles * 3.8).toFixed(1); // Mock 3.8 MB per file average
+const CATEGORY_ICONS: Record<string, string> = {
+  Projects: '🏗️',
+  Certifications: '🎓',
+  Internships: '💼',
+  Achievements: '🏆',
+  Academics: '📚',
+  Skills: '⚡',
+};
 
-  const stats = [
-    { title: 'Verified Assets', value: totalFiles.toString(), sub: 'Cryptographically secured', icon: ShieldCheck, color: 'text-brand-steel', bg: 'bg-brand-steel/10' },
-    { title: 'Milestones', value: verifiedMilestonesCount.toString(), sub: 'SSO & Smart Contract Verified', icon: Award, color: 'text-amber-600', bg: 'bg-amber-100' },
-    { title: 'Storage Allocation', value: `${storageUsed} MB`, sub: 'Of 500 MB premium safe tier', icon: Database, color: 'text-indigo-600', bg: 'bg-indigo-100' },
-    { title: 'Vault Integrity', value: '100% Solid', sub: 'Zero compromised blocks', icon: Activity, color: 'text-emerald-600', bg: 'bg-emerald-100' }
-  ];
+export default function DashboardView() {
+  const [documents, setDocuments] = useState<BackendDocument[]>([]);
+  const [timeline, setTimeline] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const quickActions = [
-    { id: 'ingestion', title: 'Ingest New Artifact', desc: 'Securely drag, upload, & parse documents using Gemini AI model.', icon: Upload, view: 'ingestion' as ViewType, color: 'from-brand-navy to-brand-blue' },
-    { id: 'graph', title: 'Intelligence Map', desc: 'Map documents, certifications, & parsed skills into interactive nodes.', icon: Network, view: 'graph' as ViewType, color: 'from-brand-steel to-indigo-900' },
-    { id: 'search', title: 'Query Secure Copilot', desc: 'Search leases, taxes, academic data, or ask complex synthesis questions.', icon: Search, view: 'search' as ViewType, color: 'from-emerald-900 to-teal-800' },
-    { id: 'portfolio', title: 'Build Public Showcase', desc: 'Instantly compile locked assets into a beautifully designed professional site.', icon: Briefcase, view: 'portfolio' as ViewType, color: 'from-purple-950 to-indigo-900' }
-  ];
+  const user = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
+  })();
+
+  useEffect(() => { fetchData(); }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [docs, timelineData] = await Promise.all([
+        apiClient.getDocuments(50),
+        apiClient.getTimeline(),
+      ]);
+      setDocuments(docs);
+      setTimeline(timelineData);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const categoryCounts: Record<string, number> = {};
+  documents.forEach((d) => {
+    const cat = d.category || 'Uncategorized';
+    categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+  });
+
+  const processedDocs = documents.filter((d) => d.status === 'processed').length;
+  const pendingDocs = documents.filter((d) => d.status === 'pending' || d.status === 'processing').length;
+
+  if (loading) {
+    return (
+      <div className="space-y-6 kx-fade-in">
+        {/* Skeleton stats */}
+        <div className="kx-grid kx-grid-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="stat-card" style={{ animationDelay: `${i * 60}ms` }}>
+              <div className="kx-skeleton" style={{ width: 44, height: 44, borderRadius: 'var(--kx-radius-md)' }} />
+              <div className="stat-info">
+                <div className="kx-skeleton" style={{ height: 12, width: '60%', marginBottom: 8 }} />
+                <div className="kx-skeleton" style={{ height: 28, width: '40%' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Skeleton cards */}
+        <div className="kx-grid kx-grid-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="kx-card">
+              <div className="kx-card-header">
+                <div className="kx-skeleton" style={{ height: 16, width: '40%' }} />
+              </div>
+              <div className="kx-card-body space-y-3">
+                {[0, 1, 2, 3].map((j) => (
+                  <div key={j} className="kx-skeleton" style={{ height: 14 }} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="kx-empty kx-fade-in">
+        <div className="kx-empty-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <div className="kx-empty-title">Failed to load dashboard</div>
+        <div className="kx-empty-desc">{error}</div>
+        <button onClick={fetchData} className="kx-btn kx-btn-primary">Retry</button>
+      </div>
+    );
+  }
+
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 17) return 'Good afternoon';
+    return 'Good evening';
+  })();
 
   return (
-    <div id="dashboard-view-root" className="space-y-6 select-none font-sans pb-12">
-      
-      {/* Top Banner / Welcome card */}
-      <div className="bg-gradient-to-r from-brand-navy to-brand-blue rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-xl card-shadow">
-        {/* Abstract vector accents */}
-        <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(52,97,142,0.45),transparent_75%)] pointer-events-none" />
-        <div className="absolute top-0 right-10 w-48 h-48 rounded-full border border-white/5 pointer-events-none" />
-        <div className="absolute -bottom-10 right-20 w-72 h-72 rounded-full border border-white/5 pointer-events-none" />
-
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 rounded-full text-[10px] font-mono tracking-wider uppercase font-semibold">
-              <Sparkles className="w-3 h-3 text-brand-accent-light animate-pulse" /> IdentityVault Active Session
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-bold font-display tracking-tight">
-              Welcome back, Elena Rostova
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-300 max-w-xl font-medium">
-              Your digital safe is synchronized. All document encryptions are fully functional, verified by FedRAMP framework standards.
-            </p>
+    <div className="space-y-6">
+      {/* Welcome banner */}
+      <div
+        className="kx-fade-in"
+        style={{
+          background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.06))',
+          border: '1px solid rgba(99,102,241,0.2)',
+          borderRadius: 'var(--kx-radius-xl)',
+          padding: '1.75rem 2rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '1rem',
+        }}
+      >
+        <div>
+          <div style={{ fontSize: '0.875rem', color: 'var(--kx-text-muted)', marginBottom: '4px' }}>
+            {greeting} 👋
           </div>
-          
-          <div className="flex items-center gap-3.5 bg-white/10 backdrop-blur-md p-3.5 rounded-2xl border border-white/10">
-            <img 
-              src={USER_AVATAR} 
-              alt="Elena Portrait" 
-              className="w-12 h-12 rounded-full border-2 border-brand-accent-light/50 object-cover shadow-inner"
-              referrerPolicy="no-referrer"
-            />
-            <div className="text-left">
-              <span className="text-[10px] font-mono text-brand-accent-light uppercase font-bold tracking-widest block">Clearance Level</span>
-              <p className="text-xs font-bold text-white uppercase tracking-tight">L3 Academic & Career Sec</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Grid of Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, i) => (
-          <motion.div
-            key={stat.title}
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className="bg-white p-4 rounded-2xl border border-slate-200/80 hover:border-slate-300/80 transition-all card-shadow flex items-start gap-3 text-left"
+          <div
+            style={{
+              fontFamily: 'var(--kx-font-display)',
+              fontSize: '1.5rem',
+              fontWeight: 700,
+              color: 'var(--kx-text-bright)',
+            }}
           >
-            <div className={`p-2.5 rounded-xl ${stat.bg} ${stat.color} shrink-0`}>
-              <stat.icon className="w-5 h-5" />
+            {user.full_name || 'Welcome back'}
+          </div>
+          <div style={{ fontSize: '0.875rem', color: 'var(--kx-text-secondary)', marginTop: '4px' }}>
+            {documents.length === 0
+              ? "You haven't uploaded any documents yet."
+              : `You have ${documents.length} document${documents.length !== 1 ? 's' : ''} in your vault.`}
+          </div>
+        </div>
+        {documents.length === 0 && (
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <div
+              style={{
+                background: 'var(--kx-gradient)',
+                borderRadius: 'var(--kx-radius-md)',
+                padding: '0.6rem 1.25rem',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                color: 'white',
+                cursor: 'pointer',
+                boxShadow: '0 2px 12px rgba(99,102,241,0.3)',
+              }}
+            >
+              ↑ Upload First Document
             </div>
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 font-mono tracking-wider uppercase">{stat.title}</span>
-              <p className="text-xl font-bold text-slate-800 font-display mt-0.5">{stat.value}</p>
-              <p className="text-[9px] text-slate-500 font-medium truncate mt-0.5">{stat.sub}</p>
-            </div>
-          </motion.div>
-        ))}
+          </div>
+        )}
       </div>
 
-      {/* Bento Grid: Core Workspace and Recent activities */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
-        {/* Quick Launchers Panel (Col-span 2) */}
-        <div className="xl:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold font-mono tracking-wider text-slate-400 uppercase">VAULT QUICK ACTIONS</h3>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {quickActions.map((action, i) => {
-              const isHovered = hoveredAction === action.id;
-              return (
-                <button
-                  key={action.id}
-                  id={`quick-action-card-${action.id}`}
-                  onClick={() => onViewChange(action.view)}
-                  onMouseEnter={() => setHoveredAction(action.id)}
-                  onMouseLeave={() => setHoveredAction(null)}
-                  className="bg-white rounded-2xl p-5 border border-slate-200/80 hover:border-brand-steel/50 transition-all card-shadow text-left group flex flex-col justify-between h-40 relative overflow-hidden cursor-pointer active:scale-99"
-                >
-                  {/* Background gradient on hover */}
-                  <div className={`absolute inset-0 bg-gradient-to-br ${action.color} opacity-0 group-hover:opacity-[0.03] transition-opacity duration-300`} />
-                  
-                  <div className="flex justify-between items-start">
-                    <div className={`p-3 rounded-xl bg-slate-100 group-hover:bg-brand-navy/5 text-slate-500 group-hover:text-brand-steel transition-colors`}>
-                      <action.icon className="w-5 h-5" />
-                    </div>
-                    <div className="p-1 rounded-full bg-slate-50 border border-slate-200/50 text-slate-400 group-hover:text-brand-steel group-hover:border-brand-steel/30 transition-all">
-                      <ArrowUpRight className="w-4 h-4" />
-                    </div>
-                  </div>
+      {/* Stat Cards */}
+      <div className="kx-grid kx-grid-4">
+        <StatCard
+          label="Total Documents"
+          value={documents.length}
+          color="indigo"
+          delay={50}
+          icon={
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            </svg>
+          }
+        />
+        <StatCard
+          label="Processed"
+          value={processedDocs}
+          color="emerald"
+          delay={100}
+          icon={
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          }
+        />
+        <StatCard
+          label="Categories"
+          value={Object.keys(categoryCounts).length}
+          color="amber"
+          delay={150}
+          icon={
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
+            </svg>
+          }
+        />
+        <StatCard
+          label="Timeline Events"
+          value={timeline?.total_events || 0}
+          color="cyan"
+          delay={200}
+          icon={
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+          }
+        />
+      </div>
 
-                  <div>
-                    <h4 className="font-semibold text-sm text-slate-800 group-hover:text-brand-steel transition-colors font-display tracking-tight flex items-center gap-1">
-                      {action.title}
-                    </h4>
-                    <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
-                      {action.desc}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Miniature Document Safe Carousel */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-200/80 card-shadow text-left">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h3 className="font-semibold text-sm text-slate-800 font-display">Featured Assets</h3>
-                <p className="text-[10px] font-mono text-slate-500 uppercase mt-0.5">High contrast verified safe elements</p>
-              </div>
-              <button 
-                onClick={() => onViewChange('library')}
-                className="text-xs font-semibold text-brand-steel hover:underline flex items-center gap-1 cursor-pointer"
+      {/* Two-column layout */}
+      <div className="kx-grid kx-grid-2">
+        {/* Recent documents */}
+        <div className="kx-card kx-fade-in kx-fade-in-delay-2">
+          <div className="kx-card-header">
+            <span className="kx-card-title">Recent Documents</span>
+            {pendingDocs > 0 && (
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  background: 'rgba(245,158,11,0.15)',
+                  color: 'var(--kx-amber)',
+                  padding: '3px 8px',
+                  borderRadius: 'var(--kx-radius-full)',
+                  fontWeight: 600,
+                }}
               >
-                <span>Full Safe</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {documents.slice(0, 4).map((doc) => (
-                <div
-                  key={doc.id}
-                  id={`doc-featured-${doc.id}`}
-                  onClick={() => onSelectDocument(doc)}
-                  className="group relative h-28 rounded-xl overflow-hidden border border-slate-200 cursor-pointer shadow-sm active:scale-98"
-                  title="Click to view file credentials"
-                >
-                  <img 
-                    src={doc.bgImageUrl} 
-                    alt={doc.altText} 
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    referrerPolicy="no-referrer"
-                  />
-                  {/* High contrast visual overlays */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
-                  <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-slate-900/80 rounded font-mono text-[8px] text-brand-accent-light font-bold uppercase border border-slate-800">
-                    {doc.category}
-                  </div>
-                  <div className="absolute bottom-2 left-2 right-2 min-w-0">
-                    <p className="text-[11px] font-bold text-white truncate">{doc.title}</p>
-                    <p className="text-[8px] font-mono text-slate-300 mt-0.5">{doc.size}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                {pendingDocs} processing
+              </span>
+            )}
           </div>
-
-        </div>
-
-        {/* Right Panel: Recent activity & Vault State */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-bold font-mono tracking-wider text-slate-400 uppercase">VAULT INTEGRITY FEED</h3>
-          
-          <div className="bg-white rounded-3xl p-5 border border-slate-200/80 card-shadow text-left space-y-4">
-            
-            {/* Safe Lock Status card */}
-            <div className="bg-slate-950 rounded-2xl p-4 border border-slate-800 text-slate-300 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-brand-steel/10 rounded-full blur-xl pointer-events-none" />
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-700/60 flex items-center justify-center text-emerald-400">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-xs text-slate-100 font-display">System Integrity Verified</h4>
-                  <p className="text-[10px] text-slate-400 font-mono mt-0.5">SHA-256 Checksums: PASSED</p>
-                </div>
+          <div className="kx-card-body">
+            {documents.length === 0 ? (
+              <div className="text-center text-muted" style={{ padding: '2rem' }}>
+                No documents yet
               </div>
-            </div>
-
-            {/* Ingestion Feed */}
-            <div className="space-y-3">
-              <h4 className="font-bold text-xs text-slate-700 font-display uppercase tracking-wider">Recently Synced Items</h4>
-              
-              <div className="divide-y divide-slate-100">
-                {recentUploads.slice(0, 5).map((item) => (
-                  <div 
-                    key={item.id} 
-                    id={`recent-upload-row-${item.id}`}
-                    className="py-2.5 flex items-center justify-between group hover:bg-slate-50/50 px-2 rounded-lg transition-colors"
+            ) : (
+              <div className="space-y-1">
+                {documents.slice(0, 8).map((doc, i) => (
+                  <div
+                    key={doc.id}
+                    className="kx-fade-in"
+                    style={{
+                      animationDelay: `${i * 40}ms`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      padding: '0.625rem 0.75rem',
+                      borderRadius: 'var(--kx-radius-md)',
+                      transition: 'var(--kx-transition)',
+                      cursor: 'default',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--kx-glass)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className={`p-1.5 rounded-lg shrink-0 ${
-                        item.type === 'cert' ? 'bg-amber-100 text-amber-700' :
-                        item.type === 'project' ? 'bg-blue-100 text-blue-700' :
-                        item.type === 'academics' ? 'bg-indigo-100 text-indigo-700' :
-                        'bg-slate-100 text-slate-600'
-                      }`}>
-                        <FileText className="w-3.5 h-3.5" />
+                    <div
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 'var(--kx-radius-sm)',
+                        background: `${CATEGORY_COLORS[doc.category || ''] || 'rgba(148,163,184,0.15)'}22`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.875rem',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {CATEGORY_ICONS[doc.category || ''] || '📄'}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="truncate" style={{ fontSize: '0.875rem', color: 'var(--kx-text)', fontWeight: 500 }}>
+                        {doc.original_filename || doc.filename}
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-slate-800 truncate group-hover:text-brand-steel transition-colors">{item.title}</p>
-                        <p className="text-[9px] text-slate-400 font-mono mt-0.5">{item.date}</p>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--kx-text-muted)' }}>
+                        {doc.category || 'Uncategorized'} ·{' '}
+                        {new Date(doc.created_at).toLocaleDateString()}
                       </div>
                     </div>
-                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-slate-100 rounded uppercase text-slate-500 shrink-0">
-                      {item.category}
-                    </span>
+                    <div
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background:
+                          doc.status === 'processed'
+                            ? 'var(--kx-emerald)'
+                            : doc.status === 'failed'
+                            ? 'var(--kx-rose)'
+                            : 'var(--kx-amber)',
+                        flexShrink: 0,
+                      }}
+                    />
                   </div>
                 ))}
               </div>
-
-              <button 
-                onClick={() => onViewChange('library')}
-                className="w-full text-center py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl text-xs font-semibold text-slate-600 hover:text-brand-steel transition-all cursor-pointer"
-              >
-                Inspect All Safe Credentials
-              </button>
-            </div>
-
-            {/* Compliance Note */}
-            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/60 flex gap-2 text-[10px] text-amber-800 leading-normal font-medium">
-              <Info className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-              <span>IdentityVault aligns with international digital safe framework standards. Local files are client-side decrypted.</span>
-            </div>
-
+            )}
           </div>
         </div>
 
+        {/* Category breakdown */}
+        <div className="kx-card kx-fade-in kx-fade-in-delay-3">
+          <div className="kx-card-header">
+            <span className="kx-card-title">Category Breakdown</span>
+          </div>
+          <div className="kx-card-body">
+            {Object.keys(categoryCounts).length === 0 ? (
+              <div className="text-center text-muted" style={{ padding: '2rem' }}>
+                Upload documents to see categories
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {Object.entries(categoryCounts)
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([category, count], i) => {
+                    const total = documents.length;
+                    const pct = Math.round((count / total) * 100);
+                    return (
+                      <div key={category} className="kx-fade-in" style={{ animationDelay: `${i * 60}ms` }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
+                          <span style={{ fontSize: '0.875rem', color: 'var(--kx-text)', fontWeight: 500 }}>
+                            {CATEGORY_ICONS[category] || '📄'} {category}
+                          </span>
+                          <span style={{ fontSize: '0.875rem', color: 'var(--kx-text-muted)' }}>
+                            {count} · {pct}%
+                          </span>
+                        </div>
+                        <div className="kx-progress">
+                          <div
+                            className="kx-progress-bar indigo"
+                            style={{
+                              width: `${pct}%`,
+                              background: CATEGORY_COLORS[category] || 'var(--kx-gradient)',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
+      {/* Processing status indicator */}
+      {pendingDocs > 0 && (
+        <div className="kx-alert kx-alert-info kx-fade-in">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+          {pendingDocs} document{pendingDocs !== 1 ? 's are' : ' is'} still being processed by the AI pipeline. Refresh to check status.
+          <button
+            onClick={fetchData}
+            style={{
+              marginLeft: 'auto',
+              background: 'none',
+              border: 'none',
+              color: 'var(--kx-indigo)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.8125rem',
+            }}
+          >
+            Refresh
+          </button>
+        </div>
+      )}
     </div>
   );
 }

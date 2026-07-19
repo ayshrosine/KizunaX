@@ -60,14 +60,14 @@ class ActivityLogRepository:
     
     async def count_by_user(self, user_id: str) -> int:
         """Count activity logs by user ID"""
-        return await ActivityLog.count(ActivityLog.user_id == user_id)
+        return await ActivityLog.find(ActivityLog.user_id == user_id).count()
     
     async def count_by_action(self, user_id: str, action: ActionType) -> int:
         """Count activity logs by action type"""
-        return await ActivityLog.count(
+        return await ActivityLog.find(
             ActivityLog.user_id == user_id,
             ActivityLog.action == action
-        )
+        ).count()
 
 # Singleton instance
 activity_log_repository = ActivityLogRepository()

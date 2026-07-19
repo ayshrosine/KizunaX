@@ -24,7 +24,7 @@ import {
   MessageSquareCode
 } from 'lucide-react';
 import { ChatMessage, Document } from '../types';
-import { defaultChatHistory } from '../data';
+import { apiClient } from '../api';
 
 interface SearchChatViewProps {
   documents: Document[];
@@ -32,7 +32,7 @@ interface SearchChatViewProps {
 }
 
 export default function SearchChatView({ documents, onSelectDocument }: SearchChatViewProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>(defaultChatHistory);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -49,7 +49,7 @@ export default function SearchChatView({ documents, onSelectDocument }: SearchCh
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isGenerating]);
 
-  const handleSend = (text: string) => {
+  const handleSend = async (text: string) => {
     if (!text.trim() || isGenerating) return;
 
     // Append user message
@@ -63,59 +63,24 @@ export default function SearchChatView({ documents, onSelectDocument }: SearchCh
     setInputValue('');
     setIsGenerating(true);
 
-    // Dynamic, realistic search-aware responses!
-    setTimeout(() => {
-      const lowerText = text.toLowerCase();
-      let botReply = "I have scanned your IdentityVault sandbox. I could not find a specific match for your request. Try asking about your 'lease agreement', 'ML research paper', 'tax return', or 'professional certifications'.";
+    try {
+      // Search documents using backend API
+      const searchResponse = await apiClient.searchDocuments(text, 5);
+      const searchResults = searchResponse.results || [];
+      
+      let botReply = "";
       let matchedDocs: ChatMessage['documents'] = [];
 
-      // Smart semantic trigger routing
-      if (lowerText.includes('lease') || lowerText.includes('renewal')) {
-        const docMatch = documents.find(d => d.title.toLowerCase().includes('lease'));
-        botReply = "I've successfully scanned your **Apartment Lease Agreement**. Under **Section 14.2 (Renewal Options)**, the contract states that a 60-day notice is required before lease expiration on Dec 31st. All rent payments must remain synchronized via the landlord ACH portal.";
-        if (docMatch) {
-          matchedDocs.push({
-            title: docMatch.title,
-            size: docMatch.size,
-            date: docMatch.date,
-            iconType: 'pdf'
-          });
-        }
-      } else if (lowerText.includes('ml') || lowerText.includes('research') || lowerText.includes('paper')) {
-        const docMatch = documents.find(d => d.title.toLowerCase().includes('ml') || d.title.toLowerCase().includes('research'));
-        botReply = "Your **ML Research Paper** (Category: Academic) has been successfully audited. The abstract focuses on optimizing latency for distributed deep neural network models. The file checksum signature has been cryptographically signed.";
-        if (docMatch) {
-          matchedDocs.push({
-            title: docMatch.title,
-            size: docMatch.size,
-            date: docMatch.date,
-            iconType: 'pdf'
-          });
-        }
-      } else if (lowerText.includes('tax') || lowerText.includes('finance') || lowerText.includes('return')) {
-        const docMatch = documents.find(d => d.title.toLowerCase().includes('tax'));
-        botReply = "I parsed your **Tax Return 2023** secure file. It represents a fully locked financial disclosure document of 0.8 MB size, filed on Jan 15, 2024. Your adjusted gross figures align with previous standard records.";
-        if (docMatch) {
-          matchedDocs.push({
-            title: docMatch.title,
-            size: docMatch.size,
-            date: docMatch.date,
-            iconType: 'pdf'
-          });
-        }
-      } else if (lowerText.includes('cert') || lowerText.includes('ux') || lowerText.includes('coursera')) {
-        const docMatch = documents.find(d => d.title.toLowerCase().includes('cert') || d.title.toLowerCase().includes('ux'));
-        botReply = "Your **Coursera UX Certification** (1.1 MB, Sep 28, 2023) is securely indexed. It verifies master-level credentials in interaction design, accessibility rules, and user research protocols. It is promoted to your Career Milestone Timeline.";
-        if (docMatch) {
-          matchedDocs.push({
-            title: docMatch.title,
-            size: docMatch.size,
-            date: docMatch.date,
-            iconType: 'pdf'
-          });
-        }
-      } else if (lowerText.includes('hello') || lowerText.includes('hi ')) {
-        botReply = "Hello Elena! I am your interactive IdentityVault Copilot. I scan, parse, and verify documents in your secure sandbox. How can I assist you with your assets or skill matching today?";
+      if (searchResults.length > 0) {
+        botReply = `I found ${searchResults.length} document(s) matching your query. Here are the results:`;
+        matchedDocs = searchResults.map((doc: any) => ({
+          title: doc.filename,
+          size: doc.file_size_bytes ? `${(doc.file_size_bytes / 1024).toFixed(1)} KB` : 'Unknown',
+          date: new Date(doc.created_at).toLocaleDateString(),
+          iconType: 'pdf'
+        }));
+      } else {
+        botReply = "I couldn't find any documents matching your query. Try searching for different keywords or upload more documents to your vault.";
       }
 
       const assistantMsg: ChatMessage = {
@@ -126,8 +91,16 @@ export default function SearchChatView({ documents, onSelectDocument }: SearchCh
       };
 
       setMessages(prev => [...prev, assistantMsg]);
+    } catch (error) {
+      const errorMsg: ChatMessage = {
+        id: `chat-${Date.now() + 1}`,
+        sender: 'assistant',
+        text: `Sorry, I encountered an error while searching: ${error instanceof Error ? error.message : 'Unknown error'}`
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
       setIsGenerating(false);
-    }, 1500);
+    }
   };
 
   return (

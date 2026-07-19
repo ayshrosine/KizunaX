@@ -1,8 +1,10 @@
 from typing import Dict, List
+from datetime import datetime
 from app.services.ai_service import ai_service
-from app.core.database import SessionLocal, Skill
+from app.models.mongodb_models import Skill
+from app.repositories.skill_repository import skill_repository
 
-def categorize_document(title: str, content: str, user_id: int) -> Dict:
+async def categorize_document(title: str, content: str, user_id: str, document_id: str = None) -> Dict:
     """Categorize document using AI service for specific user"""
     
     # Use OpenAI for categorization
@@ -10,40 +12,35 @@ def categorize_document(title: str, content: str, user_id: int) -> Dict:
     
     # Extract skills and save to database for user
     if result.get("skills"):
-        _save_skills(result["skills"], user_id)
+        await _save_skills(result["skills"], user_id, document_id)
     
     return result
 
-def _save_skills(skill_names: List[str], user_id: int):
-    """Save extracted skills to database for specific user"""
-    db = SessionLocal()
+async def _save_skills(skill_names: List[str], user_id: str, document_id: str = None):
+    """Save extracted skills to MongoDB for specific user"""
     try:
         for skill_name in skill_names:
-            # Check if skill already exists for this user
-            existing_skill = db.query(Skill).filter(
-                Skill.user_id == user_id,
-                Skill.name == skill_name
-            ).first()
-            
-            if not existing_skill:
-                # Determine skill category
-                skill_category = _categorize_skill(skill_name)
+            if document_id:
+                # Use upsert to create or update skill with document reference
+                await skill_repository.upsert_by_name(user_id, skill_name, document_id, 0.8)
+            else:
+                # Check if skill already exists for this user
+                existing_skill = await skill_repository.find_by_user_and_name(user_id, skill_name.lower().strip())
                 
-                # Create new skill for user
-                skill = Skill(
-                    user_id=user_id,
-                    name=skill_name,
-                    category=skill_category,
-                    confidence=0.8
-                )
-                db.add(skill)
+                if not existing_skill:
+                    # Create new skill for user
+                    skill = Skill(
+                        user_id=user_id,
+                        name=skill_name,
+                        normalized_name=skill_name.lower().strip(),
+                        confidence_score=0.8,
+                        source_document_ids=[],
+                        has_evidence=False
+                    )
+                    await skill.save()
         
-        db.commit()
     except Exception as e:
         print(f"Error saving skills: {e}")
-        db.rollback()
-    finally:
-        db.close()
 
 def _categorize_skill(skill_name: str) -> str:
     """Categorize a skill into technical, soft, language, etc."""
@@ -77,13 +74,18 @@ def _categorize_skill(skill_name: str) -> str:
     else:
         return "other"
 
-def bulk_categorize_documents(documents: List[Dict]) -> List[Dict]:
+async def bulk_categorize_documents(documents: List[Dict]) -> List[Dict]:
     """Categorize multiple documents"""
     results = []
     
     for doc in documents:
         try:
-            result = categorize_document(doc.get("title", ""), doc.get("content", ""))
+            result = await categorize_document(
+                doc.get("title", ""), 
+                doc.get("content", ""),
+                doc.get("user_id"),
+                doc.get("id")
+            )
             results.append({
                 "document_id": doc.get("id"),
                 "categorization": result

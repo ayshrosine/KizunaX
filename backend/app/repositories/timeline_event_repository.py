@@ -63,7 +63,7 @@ class TimelineEventRepository:
     
     async def count_by_user(self, user_id: str) -> int:
         """Count timeline events by user ID"""
-        return await TimelineEvent.count(TimelineEvent.user_id == user_id)
+        return await TimelineEvent.find(TimelineEvent.user_id == user_id).count()
 
 # Singleton instance
 timeline_event_repository = TimelineEventRepository()

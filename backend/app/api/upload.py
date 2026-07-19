@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
 from typing import List
 from pydantic import BaseModel
 
@@ -6,6 +6,7 @@ from app.models.mongodb_models import Document
 from app.core.config import settings
 from app.core.security import get_current_active_user, User
 from app.services.upload_service import upload_service
+from app.services.document_processing_service import document_processing_service
 
 router = APIRouter()
 
@@ -24,6 +25,7 @@ class BulkUploadResponse(BaseModel):
 
 @router.post("/", response_model=UploadResponse)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -47,12 +49,21 @@ async def upload_document(
             content_type=file.content_type
         )
         
+        # Trigger background processing task
+        background_tasks.add_task(
+            document_processing_service.process_document,
+            user_id=str(current_user.id),
+            document_id=str(document.id),
+            file_content=file_content,
+            filename=file.filename
+        )
+        
         return UploadResponse(
             id=str(document.id),
             filename=document.filename,
             status=document.status.value,
             storage_url=document.storage_url,
-            message="Document uploaded successfully"
+            message="Document uploaded successfully and queued for processing"
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
