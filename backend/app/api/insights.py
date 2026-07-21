@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.security import get_current_active_user, User
+from app.core.security import get_current_active_user, UserInfo
 from app.repositories.skill_repository import skill_repository
 from app.repositories.document_repository import document_repository
-from app.models.mongodb_models import DocumentCategory
+from app.models.schemas import DocumentCategory
 
 router = APIRouter()
 
@@ -30,47 +30,46 @@ CAREER_PATHS = [
     },
 ]
 
-
 def _match_score(user_skills: set, required: list) -> int:
     if not required:
         return 0
     matched = sum(1 for s in required if any(s in us or us in s for us in user_skills))
     return round((matched / len(required)) * 100)
 
-
 @router.get("/skills")
-async def get_skills_insights(current_user: User = Depends(get_current_active_user)):
+async def get_skills_insights(current_user: UserInfo = Depends(get_current_active_user)):
     """Get skill inventory for the current user."""
     try:
-        skills = await skill_repository.find_by_user_id(str(current_user.id), limit=100)
+        skills = skill_repository.find_by_user_id(current_user.id)
+        with_evidence_count = sum(1 for s in skills if len(s.get("source_document_ids", [])) > 0)
+        
         return {
             "skills": [
                 {
-                    "id": str(s.id),
-                    "name": s.name,
-                    "has_evidence": s.has_evidence,
-                    "confidence_score": s.confidence_score,
-                    "source_count": len(s.source_document_ids),
+                    "id": str(s.get("id")),
+                    "name": s.get("name"),
+                    "has_evidence": len(s.get("source_document_ids", [])) > 0,
+                    "confidence_score": s.get("confidence_score"),
+                    "source_count": len(s.get("source_document_ids", [])),
                 }
                 for s in skills
             ],
             "total": len(skills),
-            "with_evidence": sum(1 for s in skills if s.has_evidence),
+            "with_evidence": with_evidence_count,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get skills: {str(e)}")
 
-
 @router.get("/gaps")
-async def get_skill_gaps(current_user: User = Depends(get_current_active_user)):
+async def get_skill_gaps(current_user: UserInfo = Depends(get_current_active_user)):
     """Detect skill gaps based on document categories."""
     try:
-        user_id = str(current_user.id)
-        skills = await skill_repository.find_by_user_id(user_id, limit=100)
-        user_skill_names = {s.normalized_name for s in skills}
+        user_id = current_user.id
+        skills = skill_repository.find_by_user_id(user_id)
+        user_skill_names = {s.get("normalized_name") for s in skills}
 
-        documents = await document_repository.find_by_user_id(user_id, limit=100)
-        categories_present = {d.category.value for d in documents if d.category}
+        documents = document_repository.find_by_user_id(user_id, limit=100)
+        categories_present = {d.get("category") for d in documents if d.get("category")}
 
         recommended_categories = {c.value for c in DocumentCategory}
         missing_categories = recommended_categories - categories_present
@@ -86,13 +85,12 @@ async def get_skill_gaps(current_user: User = Depends(get_current_active_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get gaps: {str(e)}")
 
-
 @router.get("/career-paths")
-async def get_career_paths(current_user: User = Depends(get_current_active_user)):
+async def get_career_paths(current_user: UserInfo = Depends(get_current_active_user)):
     """Match user skills to career paths."""
     try:
-        skills = await skill_repository.find_by_user_id(str(current_user.id), limit=100)
-        user_skill_names = {s.normalized_name for s in skills}
+        skills = skill_repository.find_by_user_id(current_user.id)
+        user_skill_names = {s.get("normalized_name") for s in skills if s.get("normalized_name")}
 
         paths = []
         for path in CAREER_PATHS:

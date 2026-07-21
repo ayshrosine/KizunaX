@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from app.models.mongodb_models import Document, DocumentCategory
-from app.core.security import get_current_active_user, User
+from app.models.schemas import DocumentCategory
+from app.core.security import get_current_active_user, UserInfo
 from app.repositories.document_repository import document_repository
 from app.services.search_service import search_service
 
@@ -14,7 +14,7 @@ class DocumentResponse(BaseModel):
     filename: str
     file_type: str
     file_size_bytes: Optional[int] = None
-    storage_url: Optional[str] = None
+    file_url: Optional[str] = None
     status: str
     category: Optional[str] = None
     category_confidence: Optional[float] = None
@@ -23,7 +23,7 @@ class DocumentResponse(BaseModel):
     updated_at: str
 
 class DocumentUpdate(BaseModel):
-    category: DocumentCategory
+    category: str
 
 class DocumentListResponse(BaseModel):
     documents: List[DocumentResponse]
@@ -33,45 +33,45 @@ class DocumentListResponse(BaseModel):
 
 @router.get("/", response_model=DocumentListResponse)
 async def get_documents(
-    category: Optional[DocumentCategory] = None,
+    category: Optional[str] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(100, ge=1, le=100),
-    current_user: User = Depends(get_current_active_user)
+    current_user: UserInfo = Depends(get_current_active_user)
 ):
     """Get all documents for current user with optional category filter and pagination"""
     try:
         skip = (page - 1) * limit
         
         if category:
-            documents = await document_repository.find_by_user_and_category(
-                str(current_user.id), 
+            documents = document_repository.find_by_user_and_category(
+                current_user.id, 
                 category, 
                 skip=skip, 
                 limit=limit
             )
-            total = await document_repository.count_by_user(str(current_user.id))
         else:
-            documents = await document_repository.find_by_user_id(
-                str(current_user.id), 
+            documents = document_repository.find_by_user_id(
+                current_user.id, 
                 skip=skip, 
                 limit=limit
             )
-            total = await document_repository.count_by_user(str(current_user.id))
+            
+        total = document_repository.count_by_user(current_user.id)
         
         return DocumentListResponse(
             documents=[
                 DocumentResponse(
-                    id=str(doc.id),
-                    filename=doc.filename,
-                    file_type=doc.file_type,
-                    file_size_bytes=doc.file_size_bytes,
-                    storage_url=doc.storage_url,
-                    status=doc.status.value,
-                    category=doc.category.value if doc.category else None,
-                    category_confidence=doc.category_confidence,
-                    extracted_text=doc.extracted_text[:500] if doc.extracted_text else None,
-                    created_at=doc.created_at.isoformat(),
-                    updated_at=doc.updated_at.isoformat()
+                    id=str(doc.get("id")),
+                    filename=doc.get("filename"),
+                    file_type=doc.get("file_type"),
+                    file_size_bytes=doc.get("file_size_bytes"),
+                    file_url=doc.get("file_url"),
+                    status=doc.get("status"),
+                    category=doc.get("category"),
+                    category_confidence=doc.get("category_confidence"),
+                    extracted_text=doc.get("extracted_text", "")[:500] if doc.get("extracted_text") else None,
+                    created_at=doc.get("created_at") or "",
+                    updated_at=doc.get("updated_at") or ""
                 )
                 for doc in documents
             ],
@@ -85,27 +85,27 @@ async def get_documents(
 @router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document(
     document_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: UserInfo = Depends(get_current_active_user)
 ):
     """Get a specific document by ID for current user"""
     try:
-        document = await search_service.get_document_by_id(str(current_user.id), document_id)
+        document = await search_service.get_document_by_id(current_user.id, document_id)
         
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
         
         return DocumentResponse(
-            id=str(document.id),
-            filename=document.filename,
-            file_type=document.file_type,
-            file_size_bytes=document.file_size_bytes,
-            storage_url=document.storage_url,
-            status=document.status.value,
-            category=document.category.value if document.category else None,
-            category_confidence=document.category_confidence,
-            extracted_text=document.extracted_text[:500] if document.extracted_text else None,
-            created_at=document.created_at.isoformat(),
-            updated_at=document.updated_at.isoformat()
+            id=str(document.get("id")),
+            filename=document.get("filename"),
+            file_type=document.get("file_type"),
+            file_size_bytes=document.get("file_size_bytes"),
+            file_url=document.get("file_url"),
+            status=document.get("status"),
+            category=document.get("category"),
+            category_confidence=document.get("category_confidence"),
+            extracted_text=document.get("extracted_text", "")[:500] if document.get("extracted_text") else None,
+            created_at=document.get("created_at") or "",
+            updated_at=document.get("updated_at") or ""
         )
     except HTTPException:
         raise
@@ -116,16 +116,16 @@ async def get_document(
 async def update_document_category(
     document_id: str,
     document_update: DocumentUpdate,
-    current_user: User = Depends(get_current_active_user)
+    current_user: UserInfo = Depends(get_current_active_user)
 ):
     """Update document category for current user"""
     try:
-        document = await search_service.get_document_by_id(str(current_user.id), document_id)
+        document = await search_service.get_document_by_id(current_user.id, document_id)
         
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
         
-        await document_repository.update_category(
+        document_repository.update_category(
             document_id, 
             document_update.category
         )
@@ -139,13 +139,13 @@ async def update_document_category(
 @router.delete("/{document_id}")
 async def delete_document(
     document_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: UserInfo = Depends(get_current_active_user)
 ):
     """Delete a document for current user (soft delete)"""
     try:
         from app.services.upload_service import upload_service
         
-        success = await upload_service.delete_document(str(current_user.id), document_id)
+        success = await upload_service.delete_document(current_user.id, document_id)
         
         if not success:
             raise HTTPException(status_code=404, detail="Document not found")

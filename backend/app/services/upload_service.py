@@ -1,12 +1,13 @@
+"""
+Upload service — Uploads files to Supabase Storage (bucket 'user-files')
+and creates records in Supabase Postgres.
+"""
 from typing import Optional
-import uuid
-import io
-
 from app.repositories.document_repository import document_repository
 from app.repositories.activity_log_repository import activity_log_repository
-from app.models.mongodb_models import Document, DocumentStatus
-from app.utils.r2_storage import get_r2_storage
-from app.models.mongodb_models import ActionType
+from app.models.schemas import DocumentStatus, ActionType
+from app.core.supabase_client import get_supabase
+
 
 class UploadService:
     """Upload service - business logic for document upload operations"""
@@ -17,79 +18,89 @@ class UploadService:
         filename: str, 
         file_content: bytes, 
         content_type: str
-    ) -> Document:
-        """Upload document to R2 and create MongoDB record"""
+    ) -> dict:
+        """Upload document to Supabase Storage and create Postgres record"""
+        supabase = get_supabase()
         
-        r2_storage = get_r2_storage()
-        if not r2_storage:
-            raise ValueError("R2 storage not available")
+        # Path structure: user_id/filename (to ensure tenant separation in storage)
+        storage_path = f"{user_id}/{filename}"
         
-        # Upload to R2 storage
-        file_like_object = io.BytesIO(file_content)
-        r2_result = await r2_storage.upload_file(
-            file_like_object,
-            user_id,
-            filename,
-            content_type=content_type
-        )
-        
-        if not r2_result["success"]:
-            raise ValueError(f"Failed to upload to R2: {r2_result.get('error')}")
-        
-        # Create document record
+        try:
+            # Upload to Supabase 'user-files' bucket
+            supabase.storage.from_("user-files").upload(
+                path=storage_path,
+                file=file_content,
+                file_options={"content-type": content_type, "x-upsert": "true"}
+            )
+            
+            # Get public url for download
+            url_res = supabase.storage.from_("user-files").get_public_url(storage_path)
+            file_url = url_res if isinstance(url_res, str) else getattr(url_res, "public_url", "")
+            
+        except Exception as e:
+            raise ValueError(f"Failed to upload to Supabase Storage: {e}")
+            
+        # Create document record in Postgres
         document_data = {
             "user_id": user_id,
             "filename": filename,
-            "file_type": filename.split('.')[-1].lower(),
+            "file_type": filename.split('.')[-1].lower() if '.' in filename else 'bin',
             "file_size_bytes": len(file_content),
-            "storage_key": r2_result["r2_key"],
-            "storage_url": r2_result["r2_url"],
-            "status": DocumentStatus.UPLOADING,
+            "file_url": file_url,
+            "status": DocumentStatus.UPLOADING.value,
             "is_deleted": False
         }
         
-        document = await document_repository.create(document_data)
+        document = document_repository.create(document_data)
+        doc_id = document.get("id")
         
         # Log activity
-        await activity_log_repository.create({
-            "user_id": user_id,
-            "action": ActionType.UPLOAD,
-            "target_type": "document",
-            "target_id": str(document.id),
-            "metadata": {
-                "filename": filename,
-                "file_size": len(file_content)
-            }
-        })
-        
+        try:
+            activity_log_repository.create({
+                "user_id": user_id,
+                "action": ActionType.UPLOAD.value,
+                "target_type": "document",
+                "target_id": doc_id,
+                "metadata": {
+                    "filename": filename,
+                    "file_size": len(file_content)
+                }
+            })
+        except Exception as e:
+            print(f"[UploadService] Activity logging failed: {e}")
+            
         return document
     
-    async def get_document_status(self, document_id: str) -> Optional[Document]:
+    async def get_document_status(self, document_id: str) -> Optional[dict]:
         """Get document processing status"""
-        return await document_repository.find_by_id(document_id)
+        return document_repository.find_by_id(document_id)
     
     async def delete_document(self, user_id: str, document_id: str) -> bool:
         """Delete document (soft delete)"""
-        document = await document_repository.find_by_id(document_id)
+        document = document_repository.find_by_id(document_id)
         
-        if not document or document.user_id != user_id:
+        if not document or document.get("user_id") != user_id:
             raise ValueError("Document not found or access denied")
         
-        # Soft delete in MongoDB
-        await document_repository.soft_delete(document_id)
+        # Soft delete in Postgres
+        document_repository.soft_delete(document_id)
         
         # Log activity
-        await activity_log_repository.create({
-            "user_id": user_id,
-            "action": ActionType.DELETE,
-            "target_type": "document",
-            "target_id": document_id,
-            "metadata": {
-                "filename": document.filename
-            }
-        })
-        
+        try:
+            activity_log_repository.create({
+                "user_id": user_id,
+                "action": ActionType.DELETE.value,
+                "target_type": "document",
+                "target_id": document_id,
+                "metadata": {
+                    "filename": document.get("filename")
+                }
+            })
+        except Exception as e:
+            print(f"[UploadService] Activity logging failed: {e}")
+            
         return True
+
 
 # Singleton instance
 upload_service = UploadService()

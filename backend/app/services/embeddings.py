@@ -1,125 +1,145 @@
-import chromadb
-from chromadb.config import Settings as ChromaSettings
+"""
+Embedding / Vector Search service — Qdrant Cloud + local sentence-transformers.
+Replaces the old ChromaDB-based embeddings.py.
+"""
 from typing import List, Dict, Optional
+
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+
 from app.core.config import settings
-from app.services.ai_service import ai_service
+
+# ── Local embedding model (loaded once) ────────────────────────────────
+_embedder = None
+
+
+def _get_embedder():
+    """Lazy-load sentence-transformers model."""
+    global _embedder
+    if _embedder is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            print(f"[Embeddings] Loading model: {settings.HUGGINGFACE_MODEL}")
+            _embedder = SentenceTransformer(settings.HUGGINGFACE_MODEL)
+            print("[Embeddings] Model loaded successfully")
+        except Exception as e:
+            print(f"[Embeddings] WARN: Could not load model: {e}")
+    return _embedder
+
+
+def embed_text(text: str) -> List[float]:
+    """Generate a vector for the given text, or fall back to a hash-based stub."""
+    model = _get_embedder()
+    if model is not None:
+        return model.encode(text, convert_to_numpy=True).tolist()
+    # Fallback: deterministic hash embedding (not useful for real search, but keeps the API alive)
+    import hashlib
+    h = hashlib.sha256(text.encode()).hexdigest()
+    vec = [int(h[i:i+2], 16) / 255.0 for i in range(0, len(h), 2)]
+    dim = settings.LOCAL_EMBEDDING_DIMENSION
+    return (vec * (dim // len(vec) + 1))[:dim]
+
+
+# ── Qdrant client ──────────────────────────────────────────────────────
+COLLECTION_NAME = "user_documents"
+
 
 class EmbeddingService:
     def __init__(self):
-        self.client = None
-        self.collection = None
-        self._init_chromadb()
-    
-    def _init_chromadb(self):
-        """Initialize ChromaDB client and collection - Local/Embedded Mode"""
+        self.client: Optional[QdrantClient] = None
+        self._init_qdrant()
+
+    def _init_qdrant(self):
+        if not settings.QDRANT_URL or not settings.QDRANT_API_KEY:
+            print("[Qdrant] WARN: QDRANT_URL / QDRANT_API_KEY not set; vector search disabled.")
+            return
         try:
-            # Use local persistent client (in-memory or on-disk)
-            self.client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
-            
-            # Get or create collection
-            self.collection = self.client.get_or_create_collection(
-                name="documents",
-                metadata={"hnsw:space": "cosine"}
-            )
-            
-            print(f"ChromaDB Local initialized at {settings.CHROMA_DB_PATH}")
+            self.client = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
+            # Ensure collection exists
+            collections = [c.name for c in self.client.get_collections().collections]
+            if COLLECTION_NAME not in collections:
+                self.client.create_collection(
+                    collection_name=COLLECTION_NAME,
+                    vectors_config=VectorParams(
+                        size=settings.LOCAL_EMBEDDING_DIMENSION,
+                        distance=Distance.COSINE,
+                    ),
+                )
+                print(f"[Qdrant] Created collection '{COLLECTION_NAME}'")
+            print(f"[Qdrant] Connected to {settings.QDRANT_URL}")
         except Exception as e:
-            print(f"Error initializing ChromaDB: {e}")
+            print(f"[Qdrant] WARN: Init failed: {e}")
             self.client = None
-            self.collection = None
-    
-    def add_document_embedding(self, document_id: str, text: str, metadata: Dict):
-        """Add document embedding to vector database"""
-        if not self.collection:
+
+    # ── Public API ─────────────────────────────────────────────────────
+    def add_document_embedding(self, document_id: str, text: str, metadata: Dict) -> Optional[str]:
+        """Embed text and upsert into Qdrant."""
+        if self.client is None:
             return None
-
         try:
-            # Generate embedding
-            embedding = ai_service.generate_embedding(text)
-
-            # user_id is MANDATORY for multi-user isolation
-            if 'user_id' not in metadata:
-                raise ValueError("user_id is required in metadata for data isolation")
-
-            # Add to ChromaDB
-            self.collection.add(
-                embeddings=[embedding],
-                documents=[text],
-                metadatas=[metadata],
-                ids=[document_id]
+            vector = embed_text(text)
+            self.client.upsert(
+                collection_name=COLLECTION_NAME,
+                points=[
+                    PointStruct(
+                        id=document_id,
+                        vector=vector,
+                        payload=metadata,
+                    )
+                ],
             )
-
             return document_id
         except Exception as e:
-            print(f"Error adding embedding: {e}")
+            print(f"[Qdrant] Error upserting: {e}")
             return None
-    
-    def search_similar(self, query: str, user_id: str, n_results: int = 5, extra_where: Optional[Dict] = None) -> List[Dict]:
-        """Search for similar documents - user_id is MANDATORY for multi-tenant isolation"""
-        if not self.collection:
+
+    def search_similar(self, query: str, user_id: str, n_results: int = 5) -> List[Dict]:
+        """Semantic search filtered by user_id."""
+        if self.client is None:
             return []
-
         try:
-            # Generate query embedding
-            query_embedding = ai_service.generate_embedding(query)
-
-            # user_id is MANDATORY for multi-user isolation
-            where = {"user_id": user_id}
-            if extra_where:
-                where.update(extra_where)
-
-            # Search
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=n_results,
-                where=where
+            query_vector = embed_text(query)
+            results = self.client.search(
+                collection_name=COLLECTION_NAME,
+                query_vector=query_vector,
+                query_filter=Filter(
+                    must=[FieldCondition(key="user_id", match=MatchValue(value=user_id))]
+                ),
+                limit=n_results,
             )
-
-            # Format results
-            formatted_results = []
-            if results['ids'] and len(results['ids'][0]) > 0:
-                for i in range(len(results['ids'][0])):
-                    formatted_results.append({
-                        'id': results['ids'][0][i],
-                        'document': results['documents'][0][i],
-                        'metadata': results['metadatas'][0][i],
-                        'distance': results['distances'][0][i]
-                    })
-
-            return formatted_results
+            return [
+                {
+                    "id": str(hit.id),
+                    "score": hit.score,
+                    "metadata": hit.payload,
+                }
+                for hit in results
+            ]
         except Exception as e:
-            print(f"Error searching embeddings: {e}")
+            print(f"[Qdrant] Search error: {e}")
             return []
-    
+
     def delete_document(self, document_id: str):
-        """Delete document embedding from vector database"""
-        if not self.collection:
+        if self.client is None:
             return
-        
         try:
-            self.collection.delete(ids=[document_id])
+            self.client.delete(
+                collection_name=COLLECTION_NAME,
+                points_selector=[document_id],
+            )
         except Exception as e:
-            print(f"Error deleting embedding: {e}")
-    
-    def update_document_embedding(self, document_id: str, text: str, metadata: Dict):
-        """Update document embedding"""
-        self.delete_document(document_id)
-        return self.add_document_embedding(document_id, text, metadata)
-    
+            print(f"[Qdrant] Delete error: {e}")
+
     def get_collection_stats(self) -> Dict:
-        """Get collection statistics"""
-        if not self.collection:
+        if self.client is None:
             return {}
-        
         try:
-            count = self.collection.count()
-            return {
-                'total_documents': count,
-                'collection_name': 'documents'
-            }
+            info = self.client.get_collection(COLLECTION_NAME)
+            return {"total_documents": info.points_count, "collection_name": COLLECTION_NAME}
         except Exception as e:
-            print(f"Error getting collection stats: {e}")
+            print(f"[Qdrant] Stats error: {e}")
             return {}
 
-# Global embedding service instance
+
+# Global singleton
 embedding_service = EmbeddingService()

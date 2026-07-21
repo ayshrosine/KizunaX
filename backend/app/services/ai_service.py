@@ -1,148 +1,78 @@
+"""
+AI Service — Hugging Face Inference API (for Qwen3-8B-Instruct) + local embeddings.
+Replaces the old OpenAI-dependent ai_service.py.
+"""
 from typing import List, Dict, Optional
-import numpy as np
+import requests
+import json
 from app.core.config import settings
-
-# Optional import for OpenAI
-try:
-    import openai
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-    print("Warning: openai not available, AI features will use fallback")
-
-# Optional import for sentence-transformers - make it truly non-blocking
-SENTENCE_TRANSFORMERS_AVAILABLE = False
-try:
-    # Only import if actually needed, not at module level
-    # This prevents the import errors during startup
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
-    print("Warning: sentence-transformers import deferred to prevent startup issues")
-except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
-    print("Warning: sentence-transformers not available, local embeddings will use fallback")
 
 class AIService:
     def __init__(self):
-        self.openai_client = None
-        self.hf_model = None
-        self._init_openai()
-        # Don't init huggingface at startup - lazy load instead
-    
-    def _init_openai(self):
-        """Initialize OpenAI client"""
-        if not OPENAI_AVAILABLE:
-            print("Warning: openai package not available, OpenAI features will use fallback")
-            return
-        
-        if not settings.OPENAI_API_KEY:
-            print("Warning: OPENAI_API_KEY not set, OpenAI features will be limited")
-            return
-        
-        try:
-            self.openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-            print("OpenAI client initialized")
-        except Exception as e:
-            print(f"Error initializing OpenAI client: {e}")
-            print("OpenAI features will use fallback methods")
-            self.openai_client = None
-    
-    def _init_huggingface(self):
-        """Initialize Hugging Face model"""
-        if not SENTENCE_TRANSFORMERS_AVAILABLE:
-            print("Skipping Hugging Face model initialization (sentence-transformers not available)")
-            return
-        
-        try:
-            print(f"Loading Hugging Face model: {settings.HUGGINGFACE_MODEL}")
-            self.hf_model = SentenceTransformer(settings.HUGGINGFACE_MODEL)
-            print("Hugging Face model loaded successfully")
-        except Exception as e:
-            print(f"Error loading Hugging Face model: {e}")
-    
-    def generate_embedding_openai(self, text: str) -> Optional[List[float]]:
-        """Generate embedding using OpenAI"""
-        if not OPENAI_AVAILABLE or not self.openai_client:
+        self.hf_token = settings.HF_TOKEN
+        # Standard Qwen instruct model URL via HF Inference API
+        self.api_url = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct"
+
+    def _query_hf_api(self, prompt: str, system_prompt: str = "You are a helpful assistant.", max_new_tokens: int = 512) -> Optional[str]:
+        """Query Hugging Face Inference API."""
+        if not self.hf_token:
+            print("[AI Service] WARN: HF_TOKEN not set, skipping API query")
             return None
         
-        try:
-            response = self.openai_client.embeddings.create(
-                model=settings.OPENAI_EMBEDDING_MODEL,
-                input=text
-            )
-            return response.data[0].embedding
-        except Exception as e:
-            print(f"Error generating OpenAI embedding: {e}")
-            return None
-    
-    def generate_embedding_hf(self, text: str) -> Optional[List[float]]:
-        """Generate embedding using Hugging Face"""
-        if not self.hf_model:
-            return None
+        headers = {
+            "Authorization": f"Bearer {self.hf_token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Format query following ChatML/Qwen template style
+        formatted_prompt = f"<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+        
+        payload = {
+            "inputs": formatted_prompt,
+            "parameters": {
+                "max_new_tokens": max_new_tokens,
+                "temperature": 0.1,
+                "return_full_text": False
+            }
+        }
         
         try:
-            embedding = self.hf_model.encode(text, convert_to_numpy=True)
-            return embedding.tolist()
+            response = requests.post(self.api_url, headers=headers, json=payload, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, list) and len(result) > 0:
+                    text = result[0].get("generated_text", "")
+                    # Clean up assistant token if returned
+                    if text.startswith("assistant\n"):
+                        text = text[10:]
+                    return text.strip()
+            else:
+                print(f"[AI Service] API Error {response.status_code}: {response.text}")
         except Exception as e:
-            print(f"Error generating HF embedding: {e}")
-            return None
-    
-    def generate_embedding(self, text: str, use_openai: bool = True) -> List[float]:
-        """Generate embedding with fallback"""
-        if use_openai and self.openai_client:
-            embedding = self.generate_embedding_openai(text)
-            if embedding:
-                return embedding
-        
-        # Fallback to Hugging Face
-        embedding = self.generate_embedding_hf(text)
-        if embedding:
-            return embedding
-        
-        # Last resort: simple hash-based embedding
-        return self._simple_embedding(text)
-    
-    def _simple_embedding(self, text: str) -> List[float]:
-        """Simple hash-based embedding as fallback"""
-        # This is a very basic fallback - not recommended for production
-        import hashlib
-        hash_obj = hashlib.md5(text.encode())
-        hash_hex = hash_obj.hexdigest()
-        
-        # Convert to 384-dimensional vector (HF default)
-        embedding = []
-        for i in range(0, len(hash_hex), 2):
-            val = int(hash_hex[i:i+2], 16) / 255.0
-            embedding.append(val)
-        
-        # Pad or truncate to correct dimension
-        target_dim = settings.LOCAL_EMBEDDING_DIMENSION
-        if len(embedding) < target_dim:
-            embedding.extend([0.0] * (target_dim - len(embedding)))
-        else:
-            embedding = embedding[:target_dim]
-        
-        return embedding
-    
+            print(f"[AI Service] Request failed: {e}")
+        return None
+
+    def generate_embedding(self, text: str) -> List[float]:
+        """Generate embedding using the local sentence-transformers model."""
+        from app.services.embeddings import embed_text
+        return embed_text(text)
+
     def categorize_document_openai(self, title: str, content: str) -> Dict[str, any]:
-        """Categorize document using OpenAI"""
-        if not OPENAI_AVAILABLE or not self.openai_client:
-            return self._categorize_fallback(title, content)
-        
+        """Categorize document using Qwen via Hugging Face Inference API (API signature kept same)."""
         categories = ["Projects", "Skills", "Certifications", "Internships", "Achievements", "Academics"]
         
-        prompt = f"""
-        Analyze the following document and categorize it into ONE of these categories: {', '.join(categories)}
+        prompt = f"""Analyze the following document and categorize it into EXACTLY ONE of these categories: {', '.join(categories)}
         
         Title: {title}
-        Content: {content[:1000]}  # First 1000 chars
+        Content snippet: {content[:1500]}
         
         Also extract:
-        - Main skills mentioned (comma-separated)
+        - Main skills mentioned (as a list of strings)
         - Date mentioned (if any, in YYYY-MM-DD format)
-        - Organization/Company (if any)
+        - Organization/Company/Institution (if any)
         - Brief summary (2-3 sentences)
         
-        Respond in JSON format:
+        Return ONLY valid JSON in the format:
         {{
             "category": "category_name",
             "skills": ["skill1", "skill2"],
@@ -150,28 +80,29 @@ class AIService:
             "organization": "organization name or null",
             "summary": "brief summary",
             "confidence": 0.0-1.0
-        }}
-        """
+        }}"""
+
+        system_prompt = "You are a professional document classifier that output ONLY valid JSON. Do not include markdown code block syntax."
         
-        try:
-            response = self.openai_client.chat.completions.create(
-                model=settings.OPENAI_MODEL,
-                messages=[
-                    {"role": "system", "content": "You are a document categorization expert."},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"}
-            )
-            
-            import json
-            result = json.loads(response.choices[0].message.content)
-            return result
-        except Exception as e:
-            print(f"Error in OpenAI categorization: {e}")
-            return self._categorize_fallback(title, content)
-    
+        response_text = self._query_hf_api(prompt, system_prompt)
+        
+        if response_text:
+            try:
+                # Clean up any potential markdown wraps
+                cleaned = response_text.strip()
+                if cleaned.startswith("```json"):
+                    cleaned = cleaned[7:]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
+                return json.loads(cleaned)
+            except Exception as e:
+                print(f"[AI Service] JSON parsing failed: {e}. Raw response: {response_text}")
+        
+        return self._categorize_fallback(title, content)
+
     def _categorize_fallback(self, title: str, content: str) -> Dict[str, any]:
-        """Rule-based categorization as fallback"""
+        """Fallback categorization logic when HF API fails."""
         title_lower = title.lower()
         content_lower = content.lower()
         combined = title_lower + " " + content_lower
@@ -185,7 +116,6 @@ class AIService:
             "confidence": 0.5
         }
         
-        # Simple skill extraction from content
         known_skills = [
             "python", "javascript", "react", "node.js", "node", "mongodb", "docker", 
             "kubernetes", "sql", "java", "c++", "c#", "html", "css", "git", 
@@ -200,7 +130,6 @@ class AIService:
                     extracted_skills.append(skill)
         result["skills"] = list(set(extracted_skills))
         
-        # Simple keyword matching for category
         if any(word in combined for word in ["certificate", "certification", "course completion", "badge"]):
             result["category"] = "Certifications"
         elif any(word in combined for word in ["internship", "intern", "work experience", "employment"]):
@@ -209,62 +138,85 @@ class AIService:
             result["category"] = "Achievements"
         elif any(word in combined for word in ["transcript", "degree", "academic", "university", "college", "gpa"]):
             result["category"] = "Academics"
-        elif any(word in combined for word in ["resume", "cv", "curriculum vitae"]):
-            result["category"] = "Projects"  # Resumes often contain project info
         
         return result
-    
+
     def extract_relationships(self, documents: List[Dict]) -> List[Dict]:
-        """Extract relationships between documents using OpenAI"""
-        if not self.openai_client or len(documents) < 2:
+        """Extract relationships between documents using Qwen via HF API."""
+        if len(documents) < 2:
             return []
         
-        # For now, implement simple rule-based relationships
-        relationships = []
+        doc_summaries = []
+        for d in documents:
+            doc_summaries.append({
+                "id": d.get("id"),
+                "title": d.get("filename"),
+                "category": d.get("category"),
+                "summary": d.get("extracted_text", "")[:200]
+            })
+            
+        prompt = f"""Analyze these document summaries and identify relationships (edges) between them.
+        Use these types: "enabled_by", "led_to", "applied_in".
         
+        Documents:
+        {json.dumps(doc_summaries, indent=2)}
+        
+        Return ONLY valid JSON as a list of relationship objects:
+        [
+            {{
+                "from_entity": "document_id_1",
+                "to_entity": "document_id_2",
+                "relation_type": "relation_type"
+            }}
+        ]"""
+        
+        system_prompt = "You are a knowledge graph builder. Return ONLY valid JSON. Do not include markdown code block wraps."
+        response_text = self._query_hf_api(prompt, system_prompt)
+        
+        if response_text:
+            try:
+                cleaned = response_text.strip()
+                if cleaned.startswith("```json"):
+                    cleaned = cleaned[7:]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
+                return json.loads(cleaned)
+            except Exception as e:
+                print(f"[AI Service] Relations parsing failed: {e}. Raw: {response_text}")
+                
+        # Basic fallback matching common skills
+        relationships = []
         for i, doc1 in enumerate(documents):
             for doc2 in documents[i+1:]:
                 rel = self._detect_simple_relationship(doc1, doc2)
                 if rel:
                     relationships.append(rel)
-        
         return relationships
-    
+
     def _detect_simple_relationship(self, doc1: Dict, doc2: Dict) -> Optional[Dict]:
-        """Detect simple relationships between two documents"""
-        skills1 = set(doc1.get("skills", []))
-        skills2 = set(doc2.get("skills", []))
-        
-        # If documents share skills, they're related
+        skills1 = set(doc1.get("skills", []) or [])
+        skills2 = set(doc2.get("skills", []) or [])
         common_skills = skills1.intersection(skills2)
         if common_skills:
             return {
-                "document_id": doc1["id"],
-                "related_document_id": doc2["id"],
-                "relationship_type": "RELATED_TO",
-                "confidence": len(common_skills) / max(len(skills1), len(skills2)),
-                "metadata": {"common_skills": list(common_skills)}
+                "from_entity": doc1["id"],
+                "to_entity": doc2["id"],
+                "relation_type": "applied_in"
             }
-        
         return None
 
-# Global AI service instance
+# Global instance
 ai_service = AIService()
 
-def test_openai_connection():
-    """Test OpenAI API connection"""
+def test_hf_connection() -> bool:
+    """Test connection to Hugging Face Inference API."""
     try:
-        if ai_service.openai_client:
-            response = ai_service.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": "Hello"}],
-                max_tokens=10
-            )
-            print("OpenAI connection successful!")
+        res = ai_service._query_hf_api("Say hello.", "You are a test stub.")
+        if res:
+            print("[AI Service] HF Connection check successful!")
             return True
-        else:
-            print("OpenAI client not initialized")
-            return False
+        return False
     except Exception as e:
-        print(f"OpenAI connection failed: {e}")
+        print(f"[AI Service] HF Connection check failed: {e}")
         return False

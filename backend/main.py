@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 
 from app.core.config import settings
-from app.core.mongodb import init_mongodb, close_mongodb
+from app.core.supabase_client import get_supabase
 
 # Optional imports - make them non-blocking
 ai_service = None
@@ -26,6 +26,7 @@ try:
 except Exception as e:
     print(f"Warning: Embedding service not available: {e}")
     embedding_service = None
+
 from app.middleware.error_handler import (
     http_exception_handler,
     validation_exception_handler,
@@ -58,20 +59,17 @@ app.add_exception_handler(Exception, general_exception_handler)
 # Initialize database on startup
 @app.on_event("startup")
 async def startup_event():
-    # Initialize MongoDB (primary database)
+    # Verify Supabase client connection
     try:
-        await init_mongodb()
+        get_supabase()
     except Exception as e:
-        print(f"Warning: MongoDB initialization failed: {e}")
-        # Continue without MongoDB for demo purposes
+        print(f"Warning: Supabase client initialization failed: {e}")
 
     print(f"{settings.APP_NAME} v{settings.APP_VERSION} started successfully")
 
-# Close database on shutdown
 @app.on_event("shutdown")
 async def shutdown_event():
-    await close_mongodb()
-    print("MongoDB connection closed")
+    print("Application shutting down")
 
 # Health check endpoint
 @app.get("/health")

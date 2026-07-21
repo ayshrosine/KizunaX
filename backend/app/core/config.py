@@ -6,45 +6,32 @@ import os
 class Settings(BaseSettings):
     # Application
     APP_NAME: str = "IdentityVault"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "2.0.0"
     DEBUG: bool = True
     
-    # OpenAI
-    OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-4"
-    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    # Supabase Configuration
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
+    SUPABASE_SECRET_KEY: str = ""
+    SUPABASE_PUBLISHABLE_KEY: str = ""
+    
+    # Qdrant Configuration
+    QDRANT_URL: str = ""
+    QDRANT_API_KEY: str = ""
+    
+    # Hugging Face Inference API
+    HF_TOKEN: str = ""
     
     # Security
     SECRET_KEY: str = "your-secret-key-change-in-production"
     
-    # Hugging Face
+    # AI Models
     HUGGINGFACE_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
-    
-    # Database Paths
-    CHROMA_DB_PATH: str = "./data/chroma_db"
-    
-    # MongoDB Configuration
-    MONGODB_URI: str = ""
-    MONGODB_DATABASE_NAME: str = "identityvault"
-    
-    # ChromaDB Cloud Configuration
-    CHROMA_HOST: str = ""
-    CHROMA_API_KEY: str = ""
-    CHROMA_TENANT: str = ""
-    CHROMA_DATABASE: str = ""
-    USE_CHROMA_CLOUD: bool = False
     
     # File Upload
     UPLOAD_DIR: str = "./data/uploads"
     MAX_FILE_SIZE: int = 10485760  # 10MB
     ALLOWED_EXTENSIONS: Union[str, List[str]] = "pdf,docx,txt,png,jpg,jpeg"
-    
-    # Cloudflare R2 Configuration
-    R2_ACCOUNT_ID: str = ""
-    R2_ACCESS_KEY: str = ""
-    R2_SECRET_KEY: str = ""
-    R2_BUCKET: str = ""
-    R2_ENDPOINT: str = ""
     
     # Google Drive OAuth Settings
     GOOGLE_CLIENT_ID: str = ""
@@ -57,11 +44,10 @@ class Settings(BaseSettings):
     NOTION_REDIRECT_URI: str = "http://localhost:8000/api/integrations/notion/callback"
     
     # CORS
-    CORS_ORIGINS: Union[str, List[str]] = "http://localhost:3000"
+    CORS_ORIGINS: Union[str, List[str]] = "http://localhost:5173"
     
     # AI Processing
     CATEGORIZATION_CONFIDENCE_THRESHOLD: float = 0.7
-    EMBEDDING_DIMENSION: int = 1536  # OpenAI default
     LOCAL_EMBEDDING_DIMENSION: int = 384  # Hugging Face default
     
     # Cache
@@ -104,9 +90,3 @@ settings = Settings()
 
 # Create necessary directories
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-os.makedirs(settings.CHROMA_DB_PATH, exist_ok=True)
-
-# Create upload subdirectories
-categories = ["certificates", "resumes", "projects", "internships", "achievements", "academics"]
-for category in categories:
-    os.makedirs(os.path.join(settings.UPLOAD_DIR, category), exist_ok=True)

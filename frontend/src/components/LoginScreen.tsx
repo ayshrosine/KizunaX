@@ -14,18 +14,24 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [success, setSuccess] = useState<string | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
     setLoading(true);
     try {
-      const response =
-        mode === 'login'
-          ? await apiClient.login(email, password)
-          : await apiClient.register(email, password, fullName);
-      apiClient.setToken(response.access_token);
-      localStorage.setItem('user', JSON.stringify(response.user));
-      onLogin();
+      if (mode === 'login') {
+        const response = await apiClient.login(email, password);
+        apiClient.setToken(response.access_token);
+        localStorage.setItem('user', JSON.stringify(response.user));
+        onLogin();
+      } else {
+        await apiClient.register(email, password, fullName);
+        setMode('login');
+        setSuccess('Registration successful! Please sign in.');
+      }
     } catch (err: any) {
       setError(err.message || (mode === 'login' ? 'Invalid credentials' : 'Registration failed'));
     } finally {
@@ -104,6 +110,15 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             />
           </div>
+
+          {success && (
+            <div className="kx-alert" style={{ backgroundColor: 'rgba(46, 139, 87, 0.1)', color: '#2E8B57', borderColor: '#2E8B57' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+              </svg>
+              {success}
+            </div>
+          )}
 
           {error && (
             <div className="kx-alert kx-alert-error">

@@ -1,95 +1,75 @@
+"""
+Notification repository — Supabase Postgres.
+"""
 from typing import Optional, List
-from beanie import PydanticObjectId
+from app.core.supabase_client import get_supabase
 
-from app.models.mongodb_models import Notification, NotificationType
 
 class NotificationRepository:
-    """Repository for Notification model - MongoDB operations only"""
-    
-    async def create(self, notification_data: dict) -> Notification:
-        """Create a new notification"""
-        notification = Notification(**notification_data)
-        await notification.save()
-        return notification
-    
-    async def find_by_id(self, notification_id: str) -> Optional[Notification]:
-        """Find notification by ID"""
-        return await Notification.get(PydanticObjectId(notification_id))
-    
-    async def find_by_user_id(self, user_id: str, skip: int = 0, limit: int = 100) -> List[Notification]:
-        """Find notifications by user ID with pagination"""
-        return await Notification.find(
-            Notification.user_id == user_id
-        ).skip(skip).limit(limit).sort("-created_at").to_list()
-    
-    async def find_unread(self, user_id: str, skip: int = 0, limit: int = 100) -> List[Notification]:
-        """Find unread notifications by user ID"""
-        return await Notification.find(
-            Notification.user_id == user_id,
-            Notification.read == False
-        ).skip(skip).limit(limit).sort("-created_at").to_list()
-    
-    async def find_by_type(self, user_id: str, notification_type: NotificationType, skip: int = 0, limit: int = 100) -> List[Notification]:
-        """Find notifications by type"""
-        return await Notification.find(
-            Notification.user_id == user_id,
-            Notification.type == notification_type
-        ).skip(skip).limit(limit).sort("-created_at").to_list()
-    
-    async def mark_as_read(self, notification_id: str) -> Optional[Notification]:
-        """Mark notification as read"""
-        return await self.update(notification_id, {"read": True})
-    
-    async def mark_all_as_read(self, user_id: str) -> int:
-        """Mark all notifications for a user as read"""
-        notifications = await self.find_unread(user_id)
-        count = 0
-        for notification in notifications:
-            await self.mark_as_read(str(notification.id))
-            count += 1
-        return count
-    
-    async def update(self, notification_id: str, update_data: dict) -> Optional[Notification]:
-        """Update notification by ID"""
-        notification = await Notification.get(PydanticObjectId(notification_id))
-        if notification:
-            for key, value in update_data.items():
-                setattr(notification, key, value)
-            await notification.save()
-        return notification
-    
-    async def delete(self, notification_id: str) -> bool:
-        """Delete notification by ID"""
-        notification = await Notification.get(PydanticObjectId(notification_id))
-        if notification:
-            await notification.delete()
-            return True
-        return False
-    
-    async def delete_old(self, user_id: str, days: int = 30) -> int:
-        """Delete notifications older than specified days"""
-        from datetime import datetime, timedelta
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
-        notifications = await Notification.find(
-            Notification.user_id == user_id,
-            Notification.created_at < cutoff_date
-        ).to_list()
-        count = 0
-        for notification in notifications:
-            await notification.delete()
-            count += 1
-        return count
-    
-    async def count_by_user(self, user_id: str) -> int:
-        """Count notifications by user ID"""
-        return await Notification.find(Notification.user_id == user_id).count()
-    
-    async def count_unread(self, user_id: str) -> int:
-        """Count unread notifications by user ID"""
-        return await Notification.find(
-            Notification.user_id == user_id,
-            Notification.read == False
-        ).count()
+    TABLE = "notifications"
 
-# Singleton instance
+    def create(self, data: dict) -> dict:
+        supabase = get_supabase()
+        result = supabase.table(self.TABLE).insert(data).execute()
+        return result.data[0] if result.data else {}
+
+    def find_by_user_id(self, user_id: str, skip: int = 0, limit: int = 100) -> List[dict]:
+        supabase = get_supabase()
+        result = (
+            supabase.table(self.TABLE)
+            .select("*")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .range(skip, skip + limit - 1)
+            .execute()
+        )
+        return result.data or []
+
+    def find_unread(self, user_id: str, limit: int = 100) -> List[dict]:
+        supabase = get_supabase()
+        result = (
+            supabase.table(self.TABLE)
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("read", False)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return result.data or []
+
+    def mark_as_read(self, notification_id: str) -> Optional[dict]:
+        supabase = get_supabase()
+        result = supabase.table(self.TABLE).update({"read": True}).eq("id", notification_id).execute()
+        return result.data[0] if result.data else None
+
+    def mark_all_as_read(self, user_id: str) -> int:
+        supabase = get_supabase()
+        result = (
+            supabase.table(self.TABLE)
+            .update({"read": True})
+            .eq("user_id", user_id)
+            .eq("read", False)
+            .execute()
+        )
+        return len(result.data) if result.data else 0
+
+    def delete(self, notification_id: str) -> bool:
+        supabase = get_supabase()
+        supabase.table(self.TABLE).delete().eq("id", notification_id).execute()
+        return True
+
+    def count_unread(self, user_id: str) -> int:
+        supabase = get_supabase()
+        result = (
+            supabase.table(self.TABLE)
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .eq("read", False)
+            .execute()
+        )
+        return result.count or 0
+
+
+# Singleton
 notification_repository = NotificationRepository()
